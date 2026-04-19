@@ -47,7 +47,7 @@ export default function TreeEditorPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const { currentTree, loading, createTree, loadTree, updateLayer, setActiveLayer, activeLayer } = useHarvestStore();
+  const { currentTree, loading, createTree, loadTree, updateLayer, setActiveLayer } = useHarvestStore();
 
   const [activeTab, setActiveTab] = useState<LayerName | 'ethics'>('roots');
   const [editingTitle, setEditingTitle] = useState(false);
@@ -86,7 +86,7 @@ export default function TreeEditorPage() {
     }
   };
 
-  const handleNodeClick = useCallback((nodeId: string, layer: LayerName) => {
+  const handleNodeClick = useCallback((_nodeId: string, layer: LayerName) => {
     setActiveTab(layer);
     setActiveLayer(layer);
     setHighlightLayer(layer);

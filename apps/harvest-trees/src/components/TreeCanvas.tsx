@@ -432,7 +432,7 @@ export default function TreeCanvas({ tree, highlightLayer, activeLenses = [], on
                 <circle
                   cx={cx}
                   cy={cy}
-                  r={28}
+                  r={isHoveredFruit ? 31 : 28}
                   fill="#c9940a"
                   style={{
                     filter: 'drop-shadow(0 0 6px #c9940a88)',
