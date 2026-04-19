@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --wald-forest: #0e1f0e;
+  --wald-parchment: #f5f0e8;
+  --wald-ochre: #c9940a;
+  --wald-amber: #d4820a;
+  --verdict-grounded: #1a5c1a;
+  --verdict-conditional: #d4820a;
+  --verdict-contested: #a67c00;
+  --verdict-ungrounded: #8b0000;
+}
+
+body {
+  background-color: var(--wald-forest);
+  color: var(--wald-parchment);
+  font-family: 'Cormorant Garamond', serif;
+  margin: 0;
+  padding: 0;
+}
+
+@keyframes stamp-reveal {
+  from { opacity: 0; transform: scale(0.8) rotate(-5deg); }
+  to { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-stamp { animation: stamp-reveal 1.5s ease-out forwards; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+.animate-fade-in { animation: fade-in 0.6s ease-out forwards; }
