@@ -38,15 +38,22 @@ function safeParseJSON<T>(value: string | null | undefined, fallback: T): T {
 
 // POST /api/audit/submit
 auditRouter.post('/audit/submit', optionalAuth, (req: AuthRequest, res: Response): void => {
-  const { input_type, input_content, input_source_url, agent_context } = req.body as {
+  const body = req.body as {
     input_type?: string;
     input_content?: string;
     input_source_url?: string;
+    input?: { type?: string; content?: string; source_url?: string };
     agent_context?: unknown;
   };
 
+  // Accept both flat fields and nested input object
+  const input_type = body.input_type ?? body.input?.type;
+  const input_content = body.input_content ?? body.input?.content;
+  const input_source_url = body.input_source_url ?? body.input?.source_url;
+  const agent_context = body.agent_context;
+
   if (!input_type || !input_content) {
-    res.status(400).json({ error: 'input_type and input_content are required' });
+    res.status(400).json({ error: 'input_type/input_content or input.type/input.content are required' });
     return;
   }
 
