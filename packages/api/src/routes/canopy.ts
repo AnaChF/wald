@@ -110,7 +110,7 @@ function logRevision(params: {
   }
 }
 
-// ─── FALLBACK MOCKS (used when API key absent or Claude call fails) ──────────────────
+// ─── FALLBACK MOCKS ───────────────────────────────────────────────────────────
 
 function mockClassifySignal(text: string, agentContext: string) {
   const lower = text.toLowerCase();
@@ -197,7 +197,7 @@ function mockBackcast(timeHorizonYears: number) {
   return { milestones, decision_gates: gates, earliest_decisions: earliest, harvest_tree_seeds: seeds };
 }
 
-// ─── REAL AI FUNCTIONS ───────────────────────────────────────────────────────────
+// ─── REAL AI FUNCTIONS ────────────────────────────────────────────────────────
 
 async function classifySignalWithClaude(text: string, agentContext: string) {
   const prompt = `You are a signal classification engine for a strategic foresight application.
@@ -364,9 +364,8 @@ Return ONLY this exact JSON:
   return parsed;
 }
 
-// ─── AI ENGINE ENDPOINTS ───────────────────────────────────────────────────────
+// ─── AI ENGINE ENDPOINTS ──────────────────────────────────────────────────────
 
-// POST /api/canopy/signals/classify
 canopyRouter.post('/canopy/signals/classify', optionalAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   const { signal_text, agent_context, session_id } = req.body as {
     signal_text: string; agent_context: string; session_id: string;
@@ -391,7 +390,6 @@ canopyRouter.post('/canopy/signals/classify', optionalAuth, async (req: AuthRequ
   }
 });
 
-// POST /api/canopy/scenarios/audit
 canopyRouter.post('/canopy/scenarios/audit', optionalAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   const { scenario_text, critical_uncertainties, agent_context } = req.body as {
     scenario_text: string; critical_uncertainties: string[]; agent_context: string;
@@ -416,7 +414,6 @@ canopyRouter.post('/canopy/scenarios/audit', optionalAuth, async (req: AuthReque
   }
 });
 
-// POST /api/canopy/backcast
 canopyRouter.post('/canopy/backcast', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const { preferred_horizon_id, time_horizon_years } = req.body as {
     preferred_horizon_id: string; current_beliefs: unknown; time_horizon_years: number;
@@ -710,7 +707,7 @@ canopyRouter.get('/canopy/session/:id/scenarios', authenticate, (req: AuthReques
   res.json({ data: rows.map(parseScenario) });
 });
 
-// ─── COLLECTIVE HORIZONS (Phase 2 stubs) ────────────────────────────────────────────
+// ─── COLLECTIVE HORIZONS (Phase 2 stubs) ──────────────────────────────────────
 
 canopyRouter.post('/canopy/session/:id/collective', authenticate, (req: AuthRequest, res: Response): void => {
   res.status(202).json({ message: 'Collective Horizons is Phase 2. Architecture ready.' });
@@ -729,7 +726,7 @@ canopyRouter.post('/canopy/collective/:id/relax', authenticate, (req: AuthReques
   res.json({ data: { relaxation_type, rationale, recorded_at: new Date().toISOString() } });
 });
 
-// ─── FORECAST / INDICATORS ─────────────────────────────────────────────────────
+// ─── FORECAST / INDICATORS ────────────────────────────────────────────────────
 
 canopyRouter.post('/canopy/session/:id/backcast', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const { id: sessionId } = req.params;
@@ -773,6 +770,15 @@ canopyRouter.post('/canopy/session/:id/backcast', authenticate, async (req: Auth
     console.error('canopy/backcast error:', err);
     res.status(500).json({ error: 'Backcasting failed' });
   }
+});
+
+canopyRouter.get('/canopy/session/:id/forecast', authenticate, (req: AuthRequest, res: Response): void => {
+  const { id } = req.params;
+  const row = db.prepare(
+    'SELECT * FROM canopy_forecasts WHERE session_id = @id ORDER BY created_at DESC LIMIT 1'
+  ).get({ id }) as Record<string, unknown> | undefined;
+  if (!row) { res.status(404).json({ error: 'No forecast found' }); return; }
+  res.json({ data: parseForecast(row) });
 });
 
 canopyRouter.get('/canopy/session/:id/indicators', authenticate, (req: AuthRequest, res: Response): void => {
@@ -856,6 +862,11 @@ canopyRouter.post('/canopy/session/:id/pwtc', authenticate, (req: AuthRequest, r
   if (!scenario_id) { res.status(400).json({ error: 'scenario_id is required' }); return; }
   db.prepare(`UPDATE canopy_sessions SET visibility = 'submitted', updated_at = @now WHERE id = @id`).run({
     id, now: new Date().toISOString(),
+  });
+  logRevision({
+    session_id: id, user_id: req.userId!, entity_type: 'session', entity_id: id,
+    revision_type: 'pwtc_submitted',
+    snapshot: { scenario_id },
   });
   res.json({ data: { submitted: true, session_id: id, scenario_id } });
 });

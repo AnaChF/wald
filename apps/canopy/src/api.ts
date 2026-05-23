@@ -76,6 +76,9 @@ export const getScenarios = (sessionId: string) =>
 export const generateBackcast = (sessionId: string, body: { preferred_horizon_id: string; time_horizon_years: number }) =>
   api.post<{ data: Forecast }>(`/canopy/session/${sessionId}/backcast`, body).then((r) => r.data.data);
 
+export const getForecast = (sessionId: string) =>
+  api.get<{ data: Forecast }>(`/canopy/session/${sessionId}/forecast`).then((r) => r.data.data);
+
 export const getIndicators = (sessionId: string) =>
   api.get(`/canopy/session/${sessionId}/indicators`).then((r) => r.data.data);
 
@@ -91,7 +94,7 @@ export const submitPWTC = (sessionId: string, scenarioId: string) =>
 export const exportHarvest = (sessionId: string) =>
   api.post(`/canopy/session/${sessionId}/harvest`).then((r) => r.data.data);
 
-// Cross-app imports: fetch user's existing Walditorium and Harvest Tree sessions
+// Cross-app imports
 export const getWalditoriumSessions = (userId: string) =>
   api.get<{ data: Record<string, unknown>[] }>(`/user/${userId}/stamps`).then((r) => r.data.data);
 

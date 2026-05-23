@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { SessionSidebar } from './SessionSidebar';
 import { useCanopyStore } from '../store';
-import { getSession, getSignals, getScenarios } from '../api';
+import { getSession, getSignals, getScenarios, getForecast } from '../api';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
-  const { session, setSession, setSignals, setScenarios } = useCanopyStore();
+  const { session, setSession, setSignals, setScenarios, setForecast } = useCanopyStore();
   const [hydrating, setHydrating] = useState(false);
 
   useEffect(() => {
@@ -16,11 +16,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
       getSession(id),
       getSignals(id),
       getScenarios(id),
+      getForecast(id).catch(() => null),
     ])
-      .then(([sess, sigs, scens]) => {
+      .then(([sess, sigs, scens, fore]) => {
         setSession(sess);
         setSignals(sigs);
         setScenarios(scens);
+        if (fore) setForecast(fore);
       })
       .catch((err) => console.error('Session hydration failed:', err))
       .finally(() => setHydrating(false));

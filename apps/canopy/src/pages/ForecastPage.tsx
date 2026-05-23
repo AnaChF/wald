@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useCanopyStore } from '../store';
-import { generateBackcast, getIndicators, logDrift, exportHarvest, getReportUrl } from '../api';
+import { generateBackcast, getIndicators, logDrift, exportHarvest, getReportUrl, submitPWTC } from '../api';
 import type { Milestone, DecisionGate, HarvestSeed } from '../types';
 
 const STATUS_COLOURS: Record<string, string> = {
@@ -36,6 +36,12 @@ export function ForecastPage() {
   const [driftSaved, setDriftSaved] = useState(false);
   const [harvestExporting, setHarvestExporting] = useState(false);
   const [harvestExported, setHarvestExported] = useState(false);
+
+  // PWTC submission state
+  const [pwtcScenarioId, setPwtcScenarioId] = useState('');
+  const [pwtcConfirmOpen, setPwtcConfirmOpen] = useState(false);
+  const [pwtcSubmitting, setPwtcSubmitting] = useState(false);
+  const [pwtcSubmitted, setPwtcSubmitted] = useState(false);
 
   useEffect(() => {
     setStep(6);
@@ -79,12 +85,22 @@ export function ForecastPage() {
     finally { setHarvestExporting(false); }
   };
 
+  const handlePwtcSubmit = async () => {
+    if (!sessionId || !pwtcScenarioId) return;
+    setPwtcSubmitting(true);
+    try {
+      await submitPWTC(sessionId, pwtcScenarioId);
+      setPwtcSubmitted(true);
+      setPwtcConfirmOpen(false);
+    } catch {}
+    finally { setPwtcSubmitting(false); }
+  };
+
   const milestones: Milestone[] = forecast?.milestones ?? [];
   const gates: DecisionGate[] = forecast?.decision_gates ?? [];
   const seeds: HarvestSeed[] = forecast?.harvest_tree_seeds ?? [];
   const earliestIds = new Set(forecast?.earliest_decisions ?? []);
 
-  // Group seeds by layer
   const seedsByLayer = ['roots', 'trunk', 'branches', 'leaves', 'fruits'].reduce(
     (acc, layer) => {
       acc[layer] = seeds.filter((s) => s.layer === layer);
@@ -276,7 +292,7 @@ export function ForecastPage() {
       )}
 
       {/* Drift Detector */}
-      <div className="rounded-xl px-6 py-5" style={{ background: 'rgba(245,240,232,0.03)', border: '1px solid rgba(245,240,232,0.08)' }}>
+      <div className="mb-8 rounded-xl px-6 py-5" style={{ background: 'rgba(245,240,232,0.03)', border: '1px solid rgba(245,240,232,0.08)' }}>
         <button
           onClick={() => setDriftOpen((v) => !v)}
           className="flex items-center gap-3 w-full text-left font-cormorant font-light text-xl"
@@ -353,6 +369,99 @@ export function ForecastPage() {
           </form>
         )}
       </div>
+
+      {/* PWTC Submission */}
+      <div className="rounded-xl px-6 py-5" style={{ background: 'rgba(107,159,196,0.04)', border: '1px solid rgba(107,159,196,0.15)' }}>
+        <h3 className="font-cormorant font-light text-xl mb-2">Submit to PWTC</h3>
+        <p className="font-spectral text-sm mb-5" style={{ color: 'rgba(245,240,232,0.45)', lineHeight: 1.7 }}>
+          The Possible Worlds Trading Company receives certified scenarios as tradeable futures.
+          Submission makes this session visible to the PWTC network for collective deliberation.
+        </p>
+        {certifiedScenarios.length === 0 ? (
+          <p className="font-spectral text-sm" style={{ color: 'rgba(245,240,232,0.3)', fontStyle: 'italic' }}>
+            Certify at least one scenario to enable PWTC submission.
+          </p>
+        ) : pwtcSubmitted ? (
+          <div className="flex items-center gap-3">
+            <span style={{ color: 'var(--positive)', fontSize: 20 }}>✓</span>
+            <p className="font-cormorant font-light text-lg" style={{ color: 'var(--positive)' }}>
+              Session submitted to the Possible Worlds Trading Company.
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-end gap-4">
+            <div className="flex-1">
+              <label className="block font-mono-dm mb-2" style={{ fontSize: 11, color: 'rgba(245,240,232,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Scenario to submit
+              </label>
+              <select
+                value={pwtcScenarioId}
+                onChange={(e) => setPwtcScenarioId(e.target.value)}
+                className="w-full rounded-lg px-4 py-3 font-spectral"
+                style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid rgba(245,240,232,0.15)', color: 'var(--parchment-text)', outline: 'none' }}
+              >
+                <option value="">Select a certified scenario…</option>
+                {certifiedScenarios.map((s) => (
+                  <option key={s.id} value={s.id}>{s.title}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={() => pwtcScenarioId && setPwtcConfirmOpen(true)}
+              disabled={!pwtcScenarioId}
+              className="px-6 py-3 rounded-lg font-cormorant text-lg font-light transition-slow"
+              style={{
+                background: pwtcScenarioId ? 'rgba(107,159,196,0.2)' : 'rgba(107,159,196,0.07)',
+                border: '1px solid rgba(107,159,196,0.4)',
+                color: pwtcScenarioId ? 'var(--parchment-text)' : 'rgba(245,240,232,0.3)',
+                cursor: pwtcScenarioId ? 'pointer' : 'default',
+              }}
+            >
+              Submit to PWTC
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* PWTC confirmation modal */}
+      {pwtcConfirmOpen && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50"
+          style={{ background: 'rgba(10,26,14,0.85)', backdropFilter: 'blur(4px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPwtcConfirmOpen(false); }}
+        >
+          <div
+            className="rounded-2xl px-8 py-8 max-w-md w-full mx-4"
+            style={{ background: '#0D1F11', border: '1px solid rgba(245,240,232,0.12)' }}
+          >
+            <h3 className="font-cormorant font-light text-2xl mb-3">Confirm PWTC submission</h3>
+            <p className="font-spectral text-sm mb-2" style={{ color: 'rgba(245,240,232,0.65)', lineHeight: 1.75 }}>
+              Submitting to the Possible Worlds Trading Company marks this session as public
+              and makes the selected scenario available for collective deliberation.
+            </p>
+            <p className="font-spectral text-sm mb-6" style={{ color: 'rgba(193,126,58,0.8)', lineHeight: 1.75 }}>
+              This action is logged in the revision trail and cannot be easily undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setPwtcConfirmOpen(false)}
+                className="px-5 py-2 rounded font-spectral text-sm transition-slow"
+                style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid rgba(245,240,232,0.15)', color: 'rgba(245,240,232,0.6)' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePwtcSubmit}
+                disabled={pwtcSubmitting}
+                className="px-5 py-2 rounded font-spectral text-sm transition-slow"
+                style={{ background: 'rgba(107,159,196,0.2)', border: '1px solid rgba(107,159,196,0.45)', color: 'var(--parchment-text)' }}
+              >
+                {pwtcSubmitting ? 'Submitting…' : 'Confirm submission'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
