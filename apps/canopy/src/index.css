@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0A1A0E;
+  --bg-panel: #F5F0E8;
+  --accent-ochre: #C17E3A;
+  --accent-amber: #D4A843;
+  --positive: #2D6048;
+  --sky: #6B9FC4;
+  --dusk: #8B6B9E;
+  --ink: #1C1C1C;
+  --parchment-text: #F5F0E8;
+  --moss: #2D6048;
+  --moss-light: #3D6B3A;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Spectral', serif;
+  background-color: var(--bg-primary);
+  color: var(--parchment-text);
+}
+
+/* Typography utilities */
+.font-cormorant { font-family: 'Cormorant Garamond', serif; }
+.font-mono-dm { font-family: 'DM Mono', monospace; }
+.font-spectral { font-family: 'Spectral', serif; }
+
+/* Parchment texture */
+.parchment {
+  background-color: var(--bg-panel);
+  color: var(--ink);
+}
+
+/* Signal node colours */
+.node-deductive { background-color: #2D6048; }
+.node-inductive  { background-color: #3D6B3A; }
+.node-abductive  { background-color: #C17E3A; }
+.node-wildcard   { background-color: #D4A843; }
+
+/* CW badge colours */
+.badge-W    { background-color: #2D6048; color: #F5F0E8; }
+.badge-C    { background-color: #C17E3A; color: #F5F0E8; }
+.badge-mixed { background-color: #8B6B9E; color: #F5F0E8; }
+
+/* Smooth transitions — slow and deliberate */
+.transition-slow { transition: all 0.8s ease; }
+
+/* Certification arc fill animation */
+@keyframes arcFill {
+  0%   { stroke-dashoffset: 280; }
+  100% { stroke-dashoffset: 0; }
+}
+.arc-animate {
+  animation: arcFill 1.4s ease-out forwards;
+}
+
+/* Signal scatter-and-settle */
+@keyframes scatterSettle {
+  0%   { opacity: 0; transform: scale(0.3) translateY(-40px); }
+  80%  { opacity: 1; transform: scale(1.05) translateY(4px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.signal-enter {
+  animation: scatterSettle 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* CLA depth reveal */
+@keyframes claReveal {
+  0%   { opacity: 0; transform: translateY(-12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.cla-reveal {
+  animation: claReveal 0.9s ease-out forwards;
+}
+
+/* Crystallise (Arrow diagnostic) */
+@keyframes crystallise {
+  0%   { filter: blur(8px); opacity: 0.2; }
+  60%  { filter: blur(2px); opacity: 0.7; }
+  100% { filter: blur(0px); opacity: 1; }
+}
+.crystallise {
+  animation: crystallise 2.2s ease-in-out forwards;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2D6048; border-radius: 2px; }
+
+/* Textarea & input reset */
+textarea, input {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Prose body text */
+.prose-canopy p {
+  font-family: 'Spectral', serif;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--ink);
+}
