@@ -70,6 +70,8 @@ export function SignalCanvas({ signals, cwOverlay, onSignalMove, onSignalClick }
           <div
             key={sig.id}
             className="absolute signal-enter group"
+            draggable
+            onDragStart={(e) => e.dataTransfer.setData('signal_id', sig.id)}
             style={{
               left: sig.canvas_x,
               top: sig.canvas_y,
@@ -82,7 +84,6 @@ export function SignalCanvas({ signals, cwOverlay, onSignalMove, onSignalClick }
             onClick={() => onSignalClick(sig)}
           >
             {cwOverlay ? (
-              /* Split arc view */
               <div className="relative w-10 h-10">
                 <div
                   className="absolute inset-0 rounded-full"
@@ -95,7 +96,7 @@ export function SignalCanvas({ signals, cwOverlay, onSignalMove, onSignalClick }
                 {isMixed && (
                   <div
                     className="absolute -inset-1 rounded-full border-2"
-                    style={{ borderColor: '#D4A843', animation: 'none' }}
+                    style={{ borderColor: '#D4A843' }}
                   />
                 )}
               </div>
@@ -104,7 +105,7 @@ export function SignalCanvas({ signals, cwOverlay, onSignalMove, onSignalClick }
                 className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg"
                 style={{
                   background: colour,
-                  boxShadow: isHovered ? `0 0 0 3px rgba(245,240,232,0.25)` : undefined,
+                  boxShadow: isHovered ? '0 0 0 3px rgba(245,240,232,0.25)' : undefined,
                   transition: 'box-shadow 0.3s ease',
                 }}
               >
@@ -124,6 +125,7 @@ export function SignalCanvas({ signals, cwOverlay, onSignalMove, onSignalClick }
                   minWidth: 160,
                   fontSize: 13,
                   fontFamily: 'Spectral, serif',
+                  pointerEvents: 'none',
                 }}
               >
                 <p className="font-semibold mb-1" style={{ fontFamily: 'Cormorant Garamond, serif' }}>

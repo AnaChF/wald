@@ -1,11 +1,37 @@
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import Anthropic from '@anthropic-ai/sdk';
 import db from '../db/index';
 import { authenticate, optionalAuth, AuthRequest } from '../middleware/auth';
 
 export const canopyRouter = Router();
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+// ─── Claude client ─────────────────────────────────────────────────────────────
+
+const claude = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
+
+const CLAUDE_MODEL = 'claude-sonnet-4-6';
+
+async function callClaude(prompt: string): Promise<string> {
+  if (!claude) throw new Error('ANTHROPIC_API_KEY not set');
+  const msg = await claude.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 2048,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const block = msg.content[0];
+  return block.type === 'text' ? block.text : '';
+}
+
+function extractJSON(raw: string): unknown {
+  // Strip markdown code fences if present
+  const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  return JSON.parse(stripped);
+}
+
+// ─── helpers ─────────────────────────────────────────────────────────────────
 
 function safeJSON<T>(v: string | null | undefined, fallback: T): T {
   if (v == null) return fallback;
@@ -44,8 +70,7 @@ function parseForecast(row: Record<string, unknown>) {
   };
 }
 
-// ─── MOCK AI helpers ───────────────────────────────────────────────────────────
-// Replace these with real Claude Sonnet API calls when API key is available.
+// ─── FALLBACK MOCKS (used when API key absent or Claude call fails) ──────────────────
 
 function mockClassifySignal(text: string, agentContext: string) {
   const lower = text.toLowerCase();
@@ -61,23 +86,19 @@ function mockClassifySignal(text: string, agentContext: string) {
   const domain = domains[text.length % domains.length];
   const cw_classification = agentContext && agentContext.length > 10 ? 'mixed' : 'W';
   return {
-    logic_type,
-    strength,
-    domain,
-    cw_classification,
+    logic_type, strength, domain, cw_classification,
     linked_bolt_ids: [],
     rationale: {
       logic_type: `Signal uses ${logic_type} reasoning based on its linguistic structure.`,
       strength: `Evidence in the signal is ${strength} in its support of the claim.`,
       domain: `The primary domain of concern is ${domain}.`,
-      cw_classification: `This signal is classified as ${cw_classification}-intension given the agent context provided.`,
+      cw_classification: `Classified as ${cw_classification}-intension given the agent context provided.`,
     },
   };
 }
 
 function mockAuditScenario(scenarioText: string, criticalUncertainties: string[]) {
-  const words = scenarioText.split(' ');
-  const has_contradiction = words.length > 50;
+  const has_contradiction = scenarioText.split(' ').length > 50;
   return {
     consistency_pass: !has_contradiction,
     iia_pass: true,
@@ -86,16 +107,12 @@ function mockAuditScenario(scenarioText: string, criticalUncertainties: string[]
       : [],
     cw_map: {
       w_elements: [{ text: 'The structural conditions described are verifiable across perspectives.', confidence: 0.82 }],
-      c_elements: criticalUncertainties.map((u, i) => ({
-        text: u,
-        centre_id: `centre-${i}`,
-        confidence: 0.65,
-      })),
+      c_elements: criticalUncertainties.map((u, i) => ({ text: u, centre_id: `centre-${i}`, confidence: 0.65 })),
     },
     cla_incast: {
-      litany: 'Visible symptoms reported in the scenario suggest surface-level disruption.',
-      systemic: 'Structural drivers produce these symptoms through resource allocation mechanisms.',
-      worldview: 'The scenario presupposes that growth remains the primary measure of progress.',
+      litany: 'Visible symptoms suggest surface-level disruption.',
+      systemic: 'Structural drivers produce these symptoms through resource allocation.',
+      worldview: 'The scenario presupposes growth as the primary measure of progress.',
       metaphor: 'The deep story sustaining this scenario is one of a frontier to be conquered.',
       dominant_centre: null,
     },
@@ -104,57 +121,230 @@ function mockAuditScenario(scenarioText: string, criticalUncertainties: string[]
 }
 
 function mockBackcast(timeHorizonYears: number) {
-  const now = new Date().getFullYear();
-  const milestones = [];
-  const gates = [];
   const steps = Math.min(timeHorizonYears, 8);
+  const milestones: Record<string, unknown>[] = [];
+  const gates: Record<string, unknown>[] = [];
+  const idMap: Record<string, string> = {};
+
   for (let i = 1; i <= steps; i++) {
-    const id = uuidv4();
+    const localId = `m${i}`;
+    const uuid = uuidv4();
+    idMap[localId] = uuid;
     const yearOffset = Math.round((i / steps) * timeHorizonYears);
+    const isGate = i % 3 === 0;
     milestones.push({
-      id,
-      year_offset: yearOffset,
-      description: `Milestone ${i}: Structural conditions for the preferred horizon begin to consolidate.`,
-      type: i % 3 === 0 ? 'decision' : i % 3 === 1 ? 'event' : 'condition',
-      is_gate: i % 3 === 0,
-      harvest_tree_layer: ['roots', 'trunk', 'branches', 'leaves', 'fruits'][i % 5] as string,
+      id: uuid, year_offset: yearOffset,
+      description: `Milestone ${i}: Conditions for the preferred horizon begin to consolidate.`,
+      type: isGate ? 'decision' : i % 2 === 0 ? 'event' : 'condition',
+      is_gate: isGate,
+      harvest_tree_layer: ['roots', 'trunk', 'branches', 'leaves', 'fruits'][i % 5],
     });
-    if (i % 3 === 0) {
+    if (isGate) {
       gates.push({
-        milestone_id: id,
+        milestone_id: uuid,
         if_yes_path: 'Continue toward the preferred horizon with current momentum.',
         if_no_path: 'Pause and reassess foundational assumptions before proceeding.',
         decision_window_months: 6,
       });
     }
   }
-  return {
-    milestones,
-    decision_gates: gates,
-    earliest_decisions: milestones.filter((m) => m.type === 'decision').slice(0, 2).map((m) => m.id),
-    harvest_tree_seeds: milestones.map((m) => ({
-      layer: m.harvest_tree_layer,
-      text: `From milestone at year +${m.year_offset}: ${m.description}`,
-      linked_milestone_id: m.id,
-    })),
+  const earliest = milestones.filter((m) => m.type === 'decision').slice(0, 2).map((m) => m.id);
+  const seeds = milestones.map((m) => ({
+    layer: m.harvest_tree_layer,
+    text: `From +${m.year_offset}y: ${m.description}`,
+    linked_milestone_id: m.id,
+  }));
+  return { milestones, decision_gates: gates, earliest_decisions: earliest, harvest_tree_seeds: seeds };
+}
+
+// ─── REAL AI FUNCTIONS ───────────────────────────────────────────────────────────
+
+async function classifySignalWithClaude(text: string, agentContext: string) {
+  const prompt = `You are a signal classification engine for a strategic foresight application.
+
+Classify the following observed signal across four dimensions. Return ONLY valid JSON, no prose, no markdown fences.
+
+Signal: "${text.replace(/"/g, "'")}"
+Agent context: "${agentContext.replace(/"/g, "'")}"
+
+Dimensions:
+
+LOGIC TYPE (choose one):
+- "deductive": the signal follows necessarily from known premises or established trends
+- "inductive": the signal generalises from a pattern of repeated observations
+- "abductive": the signal is the best available explanation for an anomaly or surprising observation
+
+STRENGTH (choose one):
+- "strong": well-evidenced, multiple corroborating sources
+- "weak": suggestive but uncertain, limited evidence
+- "wildcard": low probability but high potential impact if true
+
+DOMAIN: choose the most relevant single word from — Technology, Environment, Politics, Economy, Society, Culture, Governance, Demographics, Science, Energy
+
+CW CLASSIFICATION (choose one):
+- "W": what the signal implies holds regardless of who is observing or from when; a verifiable claim
+- "C": what the signal means is specific to the current agent's position, time, and context
+- "mixed": contains both W-intension and C-intension components
+
+Provide a one-sentence rationale for each classification decision.
+
+Return exactly this JSON:
+{
+  "logic_type": "deductive" | "inductive" | "abductive",
+  "strength": "strong" | "weak" | "wildcard",
+  "domain": string,
+  "cw_classification": "W" | "C" | "mixed",
+  "linked_bolt_ids": [],
+  "rationale": {
+    "logic_type": string,
+    "strength": string,
+    "domain": string,
+    "cw_classification": string
+  }
+}`;
+
+  const raw = await callClaude(prompt);
+  return extractJSON(raw) as ReturnType<typeof mockClassifySignal>;
+}
+
+async function auditScenarioWithClaude(
+  scenarioText: string,
+  criticalUncertainties: string[],
+  agentContext: string,
+) {
+  const cuList = criticalUncertainties.length > 0
+    ? criticalUncertainties.join('; ')
+    : 'none specified';
+
+  const prompt = `You are auditing a scenario for a strategic foresight session. Your role is to identify tensions worth naming, not to judge correctness.
+
+Scenario:
+${scenarioText}
+
+Critical uncertainties this scenario is built on: ${cuList}
+Agent context: ${agentContext || 'not specified'}
+
+Perform these checks:
+
+1. DEDUCTIVE CONTRADICTIONS: pairs of claims that together imply the negation of a third claim also present. List each as a single sentence beginning "This scenario contains a tension between..."
+2. IIA VIOLATIONS: language where evaluating one scenario element presupposes another independent scenario element.
+3. C/W CONFLATION: claims stated as universal facts that are actually perspective-dependent.
+4. CW MAPPING: identify W-intension elements (verifiable by any observer) and C-intension elements (perspective-dependent).
+5. CLA INCASTING: what this scenario presupposes at each CLA level.
+6. ARROW FAILURE FLAG: true only if the scenario's logical structure fails to preserve preference ordering in a way that matters for collective decision-making.
+
+consistency_pass is true if there are no deductive contradictions.
+iia_pass is true if there are no IIA violations.
+
+Return ONLY this exact JSON:
+{
+  "consistency_pass": boolean,
+  "iia_pass": boolean,
+  "internal_contradictions": [string],
+  "cw_map": {
+    "w_elements": [{"text": string, "confidence": number}],
+    "c_elements": [{"text": string, "centre_id": "unspecified", "confidence": number}]
+  },
+  "cla_incast": {
+    "litany": string,
+    "systemic": string,
+    "worldview": string,
+    "metaphor": string,
+    "dominant_centre": null
+  },
+  "arrow_failure_flag": boolean
+}`;
+
+  const raw = await callClaude(prompt);
+  return extractJSON(raw) as ReturnType<typeof mockAuditScenario>;
+}
+
+async function backcastWithClaude(preferredHorizonId: string, timeHorizonYears: number) {
+  const prompt = `You are generating a backcasting forecast for a strategic foresight session.
+
+The user has identified a preferred future horizon. Working backward from that horizon over ${timeHorizonYears} years, generate a sequence of milestones, decision gates, and Harvest Tree seeds.
+
+Preferred horizon reference: ${preferredHorizonId}
+Time horizon: ${timeHorizonYears} years from now
+
+Generate 6 to 10 milestones. Each milestone is a waypoint between now and the preferred future — conditions that must obtain, events that must occur, or decisions that must be made. Order them from nearest to furthest (ascending year_offset).
+
+For milestones with is_gate: true, generate a corresponding decision gate entry.
+
+Harvest Tree seeds should cover all five layers: roots (foundational values/constraints), trunk (core beliefs/commitments), branches (strategies/capabilities), leaves (actions/practices), fruits (outcomes/impacts).
+
+Use sequential IDs "m1", "m2" etc. The server will replace them with UUIDs.
+
+Return ONLY this exact JSON:
+{
+  "milestones": [
+    {
+      "id": "m1",
+      "year_offset": integer,
+      "description": string,
+      "type": "decision" | "event" | "condition",
+      "is_gate": boolean,
+      "harvest_tree_layer": "roots" | "trunk" | "branches" | "leaves" | "fruits" | null
+    }
+  ],
+  "decision_gates": [
+    {
+      "milestone_id": "m1",
+      "if_yes_path": string,
+      "if_no_path": string,
+      "decision_window_months": integer
+    }
+  ],
+  "earliest_decisions": ["m1"],
+  "harvest_tree_seeds": [
+    {"layer": string, "text": string, "linked_milestone_id": "m1"}
+  ]
+}`;
+
+  const raw = await callClaude(prompt);
+  const parsed = extractJSON(raw) as {
+    milestones: Array<{ id: string; year_offset: number; description: string; type: string; is_gate: boolean; harvest_tree_layer: string | null }>;
+    decision_gates: Array<{ milestone_id: string; if_yes_path: string; if_no_path: string; decision_window_months: number }>;
+    earliest_decisions: string[];
+    harvest_tree_seeds: Array<{ layer: string; text: string; linked_milestone_id: string }>;
   };
+
+  // Replace sequential IDs with real UUIDs
+  const idMap: Record<string, string> = {};
+  for (const m of parsed.milestones) {
+    idMap[m.id] = uuidv4();
+    m.id = idMap[m.id];
+  }
+  for (const g of parsed.decision_gates) {
+    g.milestone_id = idMap[g.milestone_id] ?? g.milestone_id;
+  }
+  parsed.earliest_decisions = parsed.earliest_decisions.map((id) => idMap[id] ?? id);
+  for (const s of parsed.harvest_tree_seeds) {
+    s.linked_milestone_id = idMap[s.linked_milestone_id] ?? s.linked_milestone_id;
+  }
+  return parsed;
 }
 
 // ─── AI ENGINE ENDPOINTS ───────────────────────────────────────────────────────
 
 // POST /api/canopy/signals/classify
-canopyRouter.post('/canopy/signals/classify', optionalAuth, (req: AuthRequest, res: Response): void => {
+canopyRouter.post('/canopy/signals/classify', optionalAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   const { signal_text, agent_context, session_id } = req.body as {
-    signal_text: string;
-    agent_context: string;
-    session_id: string;
+    signal_text: string; agent_context: string; session_id: string;
   };
-  if (!signal_text) {
-    res.status(400).json({ error: 'signal_text is required' });
-    return;
-  }
+  if (!signal_text) { res.status(400).json({ error: 'signal_text is required' }); return; }
   try {
-    const result = mockClassifySignal(signal_text, agent_context ?? '');
+    let result;
+    if (claude) {
+      try {
+        result = await classifySignalWithClaude(signal_text, agent_context ?? '');
+      } catch (aiErr) {
+        console.warn('Claude classify failed, using mock:', aiErr);
+        result = mockClassifySignal(signal_text, agent_context ?? '');
+      }
+    } else {
+      result = mockClassifySignal(signal_text, agent_context ?? '');
+    }
     res.json({ data: result });
   } catch (err) {
     console.error('canopy/signals/classify error:', err);
@@ -163,18 +353,23 @@ canopyRouter.post('/canopy/signals/classify', optionalAuth, (req: AuthRequest, r
 });
 
 // POST /api/canopy/scenarios/audit
-canopyRouter.post('/canopy/scenarios/audit', optionalAuth, (req: AuthRequest, res: Response): void => {
+canopyRouter.post('/canopy/scenarios/audit', optionalAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   const { scenario_text, critical_uncertainties, agent_context } = req.body as {
-    scenario_text: string;
-    critical_uncertainties: string[];
-    agent_context: string;
+    scenario_text: string; critical_uncertainties: string[]; agent_context: string;
   };
-  if (!scenario_text) {
-    res.status(400).json({ error: 'scenario_text is required' });
-    return;
-  }
+  if (!scenario_text) { res.status(400).json({ error: 'scenario_text is required' }); return; }
   try {
-    const result = mockAuditScenario(scenario_text, critical_uncertainties ?? []);
+    let result;
+    if (claude) {
+      try {
+        result = await auditScenarioWithClaude(scenario_text, critical_uncertainties ?? [], agent_context ?? '');
+      } catch (aiErr) {
+        console.warn('Claude audit failed, using mock:', aiErr);
+        result = mockAuditScenario(scenario_text, critical_uncertainties ?? []);
+      }
+    } else {
+      result = mockAuditScenario(scenario_text, critical_uncertainties ?? []);
+    }
     res.json({ data: result });
   } catch (err) {
     console.error('canopy/scenarios/audit error:', err);
@@ -183,18 +378,25 @@ canopyRouter.post('/canopy/scenarios/audit', optionalAuth, (req: AuthRequest, re
 });
 
 // POST /api/canopy/backcast
-canopyRouter.post('/canopy/backcast', authenticate, (req: AuthRequest, res: Response): void => {
+canopyRouter.post('/canopy/backcast', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const { preferred_horizon_id, time_horizon_years } = req.body as {
-    preferred_horizon_id: string;
-    current_beliefs: unknown;
-    time_horizon_years: number;
+    preferred_horizon_id: string; current_beliefs: unknown; time_horizon_years: number;
   };
   if (!preferred_horizon_id || !time_horizon_years) {
-    res.status(400).json({ error: 'preferred_horizon_id and time_horizon_years are required' });
-    return;
+    res.status(400).json({ error: 'preferred_horizon_id and time_horizon_years are required' }); return;
   }
   try {
-    const result = mockBackcast(time_horizon_years);
+    let result;
+    if (claude) {
+      try {
+        result = await backcastWithClaude(preferred_horizon_id, time_horizon_years);
+      } catch (aiErr) {
+        console.warn('Claude backcast failed, using mock:', aiErr);
+        result = mockBackcast(time_horizon_years);
+      }
+    } else {
+      result = mockBackcast(time_horizon_years);
+    }
     res.json({ data: result });
   } catch (err) {
     console.error('canopy/backcast error:', err);
@@ -202,11 +404,10 @@ canopyRouter.post('/canopy/backcast', authenticate, (req: AuthRequest, res: Resp
   }
 });
 
-// ─── SESSION ROUTES ────────────────────────────────────────────────────────────
+// ─── SESSION ROUTES ───────────────────────────────────────────────────────────
 
-// POST /api/canopy/session/create
 canopyRouter.post('/canopy/session/create', authenticate, (req: AuthRequest, res: Response): void => {
-  const { title, foresight_question, time_horizon_years, audit_result_seed, brick_seed, centre_description } =
+  const { title, foresight_question, audit_result_seed, brick_seed, centre_description } =
     req.body as Record<string, unknown>;
   const id = uuidv4();
   const userId = req.userId!;
@@ -217,8 +418,7 @@ canopyRouter.post('/canopy/session/create', authenticate, (req: AuthRequest, res
     VALUES
       (@id, @user_id, @title, @foresight_question, @audit_result_seed, @brick_seed, @centre_description, @share_token)
   `).run({
-    id,
-    user_id: userId,
+    id, user_id: userId,
     title: title ?? null,
     foresight_question: foresight_question ?? null,
     audit_result_seed: audit_result_seed ? JSON.stringify(audit_result_seed) : null,
@@ -230,25 +430,20 @@ canopyRouter.post('/canopy/session/create', authenticate, (req: AuthRequest, res
   res.status(201).json({ data: parseSession(row) });
 });
 
-// GET /api/canopy/session/:id
 canopyRouter.get('/canopy/session/:id', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const shareToken = req.query.share_token as string | undefined;
   const row = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as
-    | Record<string, unknown>
-    | undefined;
+    | Record<string, unknown> | undefined;
   if (!row) { res.status(404).json({ error: 'Session not found' }); return; }
   if (
     row.visibility !== 'shared' &&
     row.user_id !== req.userId &&
     !(shareToken && shareToken === row.share_token)
-  ) {
-    res.status(403).json({ error: 'Access denied' }); return;
-  }
+  ) { res.status(403).json({ error: 'Access denied' }); return; }
   res.json({ data: parseSession(row) });
 });
 
-// PUT /api/canopy/session/:id
 canopyRouter.put('/canopy/session/:id', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const row = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id AND user_id = @user_id').get({
@@ -259,17 +454,13 @@ canopyRouter.put('/canopy/session/:id', authenticate, (req: AuthRequest, res: Re
   const updates: Record<string, unknown> = { id, updated_at: new Date().toISOString() };
   const setClauses: string[] = ['updated_at = @updated_at'];
   for (const f of fields) {
-    if (req.body[f] !== undefined) {
-      updates[f] = req.body[f];
-      setClauses.push(`${f} = @${f}`);
-    }
+    if (req.body[f] !== undefined) { updates[f] = req.body[f]; setClauses.push(`${f} = @${f}`); }
   }
   db.prepare(`UPDATE canopy_sessions SET ${setClauses.join(', ')} WHERE id = @id`).run(updates);
   const updated = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown>;
   res.json({ data: parseSession(updated) });
 });
 
-// GET /api/canopy/user/:id/sessions
 canopyRouter.get('/canopy/user/:id/sessions', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   if (id !== req.userId) { res.status(403).json({ error: 'Access denied' }); return; }
@@ -278,7 +469,6 @@ canopyRouter.get('/canopy/user/:id/sessions', authenticate, (req: AuthRequest, r
   res.json({ data: rows.map(parseSession) });
 });
 
-// POST /api/canopy/session/:id/share
 canopyRouter.post('/canopy/session/:id/share', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const row = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id AND user_id = @user_id').get({
@@ -292,9 +482,8 @@ canopyRouter.post('/canopy/session/:id/share', authenticate, (req: AuthRequest, 
   res.json({ data: { share_token: updated.share_token, share_url: `/canopy/session/${id}?share_token=${updated.share_token}` } });
 });
 
-// ─── SIGNAL ROUTES ─────────────────────────────────────────────────────────────
+// ─── SIGNAL ROUTES ────────────────────────────────────────────────────────────
 
-// POST /api/canopy/session/:id/signals
 canopyRouter.post('/canopy/session/:id/signals', authenticate, (req: AuthRequest, res: Response): void => {
   const { id: sessionId } = req.params;
   const { text, source, canvas_x, canvas_y } = req.body as Record<string, unknown>;
@@ -304,11 +493,8 @@ canopyRouter.post('/canopy/session/:id/signals', authenticate, (req: AuthRequest
     INSERT INTO canopy_signals (id, session_id, user_id, text, source, canvas_x, canvas_y)
     VALUES (@id, @session_id, @user_id, @text, @source, @canvas_x, @canvas_y)
   `).run({
-    id: signalId,
-    session_id: sessionId,
-    user_id: req.userId,
-    text,
-    source: source ?? null,
+    id: signalId, session_id: sessionId, user_id: req.userId,
+    text, source: source ?? null,
     canvas_x: canvas_x ?? Math.random() * 800,
     canvas_y: canvas_y ?? Math.random() * 500,
   });
@@ -316,7 +502,6 @@ canopyRouter.post('/canopy/session/:id/signals', authenticate, (req: AuthRequest
   res.status(201).json({ data: parseSignal(row) });
 });
 
-// PUT /api/canopy/signal/:id/classify
 canopyRouter.put('/canopy/signal/:id/classify', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const { logic_type, strength, domain, cw_class, classifier_rationale, linked_bolts, futures_cone_layer, canvas_x, canvas_y } =
@@ -338,7 +523,6 @@ canopyRouter.put('/canopy/signal/:id/classify', authenticate, (req: AuthRequest,
   res.json({ data: parseSignal(row) });
 });
 
-// GET signals for session
 canopyRouter.get('/canopy/session/:id/signals', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const rows = db.prepare('SELECT * FROM canopy_signals WHERE session_id = @id ORDER BY created_at ASC').all({ id }) as
@@ -346,9 +530,8 @@ canopyRouter.get('/canopy/session/:id/signals', authenticate, (req: AuthRequest,
   res.json({ data: rows.map(parseSignal) });
 });
 
-// ─── TRIANGLE / CLA ────────────────────────────────────────────────────────────
+// ─── TRIANGLE / CLA ───────────────────────────────────────────────────────────
 
-// POST /api/canopy/session/:id/triangle
 canopyRouter.post('/canopy/session/:id/triangle', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const { push, weight, pull, tensions } = req.body as Record<string, unknown>;
@@ -360,7 +543,6 @@ canopyRouter.post('/canopy/session/:id/triangle', authenticate, (req: AuthReques
   res.json({ data: { session_id: id, futures_triangle: { push, weight, pull, tensions } } });
 });
 
-// POST /api/canopy/session/:id/cla
 canopyRouter.post('/canopy/session/:id/cla', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const { litany, systemic, worldview, metaphor, centre_attributions } = req.body as Record<string, unknown>;
@@ -372,9 +554,8 @@ canopyRouter.post('/canopy/session/:id/cla', authenticate, (req: AuthRequest, re
   res.json({ data: { session_id: id, cla: { litany, systemic, worldview, metaphor, centre_attributions } } });
 });
 
-// ─── SCENARIO ROUTES ───────────────────────────────────────────────────────────
+// ─── SCENARIO ROUTES ──────────────────────────────────────────────────────────
 
-// POST /api/canopy/session/:id/scenario
 canopyRouter.post('/canopy/session/:id/scenario', authenticate, (req: AuthRequest, res: Response): void => {
   const { id: sessionId } = req.params;
   const { title, narrative, critical_uncertainties, horizon_id } = req.body as Record<string, unknown>;
@@ -384,42 +565,53 @@ canopyRouter.post('/canopy/session/:id/scenario', authenticate, (req: AuthReques
     INSERT INTO canopy_scenarios (id, session_id, horizon_id, title, narrative, critical_uncertainties)
     VALUES (@id, @session_id, @horizon_id, @title, @narrative, @critical_uncertainties)
   `).run({
-    id: scenarioId,
-    session_id: sessionId,
-    horizon_id: horizon_id ?? null,
-    title,
-    narrative: narrative ?? null,
+    id: scenarioId, session_id: sessionId, horizon_id: horizon_id ?? null,
+    title, narrative: narrative ?? null,
     critical_uncertainties: JSON.stringify(critical_uncertainties ?? []),
   });
   const row = db.prepare('SELECT * FROM canopy_scenarios WHERE id = @id').get({ id: scenarioId }) as Record<string, unknown>;
   res.status(201).json({ data: parseScenario(row) });
 });
 
-// POST /api/canopy/scenario/:id/audit
-canopyRouter.post('/canopy/scenario/:id/audit', authenticate, (req: AuthRequest, res: Response): void => {
+canopyRouter.post('/canopy/scenario/:id/audit', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const { id } = req.params;
   const row = db.prepare('SELECT * FROM canopy_scenarios WHERE id = @id').get({ id }) as Record<string, unknown> | undefined;
   if (!row) { res.status(404).json({ error: 'Scenario not found' }); return; }
-  const narrative = row.narrative as string ?? '';
+  const narrative = (row.narrative as string) ?? '';
   const cu = safeJSON<string[]>(row.critical_uncertainties as string, []);
-  const result = mockAuditScenario(narrative, cu);
-  db.prepare(`
-    UPDATE canopy_scenarios SET
-      consistency_certified = @cc, iia_pass = @iia, arrow_failure_flag = @aff, cw_map = @cw, cla_incast = @cla
-    WHERE id = @id
-  `).run({
-    id,
-    cc: result.consistency_pass ? 1 : 0,
-    iia: result.iia_pass ? 1 : 0,
-    aff: result.arrow_failure_flag ? 1 : 0,
-    cw: JSON.stringify(result.cw_map),
-    cla: JSON.stringify(result.cla_incast),
-  });
-  const updated = db.prepare('SELECT * FROM canopy_scenarios WHERE id = @id').get({ id }) as Record<string, unknown>;
-  res.json({ data: { scenario: parseScenario(updated), audit: result } });
+  try {
+    let result;
+    if (claude) {
+      try {
+        result = await auditScenarioWithClaude(narrative, cu, '');
+      } catch (aiErr) {
+        console.warn('Claude scenario audit failed, using mock:', aiErr);
+        result = mockAuditScenario(narrative, cu);
+      }
+    } else {
+      result = mockAuditScenario(narrative, cu);
+    }
+    db.prepare(`
+      UPDATE canopy_scenarios SET
+        consistency_certified = @cc, iia_pass = @iia, arrow_failure_flag = @aff,
+        cw_map = @cw, cla_incast = @cla
+      WHERE id = @id
+    `).run({
+      id,
+      cc: result.consistency_pass ? 1 : 0,
+      iia: result.iia_pass ? 1 : 0,
+      aff: result.arrow_failure_flag ? 1 : 0,
+      cw: JSON.stringify(result.cw_map),
+      cla: JSON.stringify(result.cla_incast),
+    });
+    const updated = db.prepare('SELECT * FROM canopy_scenarios WHERE id = @id').get({ id }) as Record<string, unknown>;
+    res.json({ data: { scenario: parseScenario(updated), audit: result } });
+  } catch (err) {
+    console.error('scenario/audit error:', err);
+    res.status(500).json({ error: 'Audit failed' });
+  }
 });
 
-// GET /api/canopy/scenario/:id/certification
 canopyRouter.get('/canopy/scenario/:id/certification', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const row = db.prepare('SELECT * FROM canopy_scenarios WHERE id = @id').get({ id }) as Record<string, unknown> | undefined;
@@ -437,7 +629,6 @@ canopyRouter.get('/canopy/scenario/:id/certification', optionalAuth, (req: AuthR
   });
 });
 
-// GET scenarios for session
 canopyRouter.get('/canopy/session/:id/scenarios', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const rows = db.prepare('SELECT * FROM canopy_scenarios WHERE session_id = @id ORDER BY created_at ASC').all({ id }) as
@@ -445,24 +636,17 @@ canopyRouter.get('/canopy/session/:id/scenarios', authenticate, (req: AuthReques
   res.json({ data: rows.map(parseScenario) });
 });
 
-// ─── COLLECTIVE HORIZONS ───────────────────────────────────────────────────────
+// ─── COLLECTIVE HORIZONS (Phase 2 stubs) ────────────────────────────────────────────
 
-// POST /api/canopy/session/:id/collective  (Phase 2 stub)
 canopyRouter.post('/canopy/session/:id/collective', authenticate, (req: AuthRequest, res: Response): void => {
   res.status(202).json({ message: 'Collective Horizons is Phase 2. Architecture ready.' });
 });
-
-// POST /api/canopy/collective/:id/ranking
 canopyRouter.post('/canopy/collective/:id/ranking', authenticate, (req: AuthRequest, res: Response): void => {
-  res.status(202).json({ message: 'Collective ranking endpoint — Phase 2.' });
+  res.status(202).json({ message: 'Collective ranking — Phase 2.' });
 });
-
-// GET /api/canopy/collective/:id/arrow
 canopyRouter.get('/canopy/collective/:id/arrow', authenticate, (req: AuthRequest, res: Response): void => {
-  res.status(202).json({ message: 'Arrow diagnostic endpoint — Phase 2.' });
+  res.status(202).json({ message: 'Arrow diagnostic — Phase 2.' });
 });
-
-// POST /api/canopy/collective/:id/relax
 canopyRouter.post('/canopy/collective/:id/relax', authenticate, (req: AuthRequest, res: Response): void => {
   const { relaxation_type, rationale } = req.body as { relaxation_type: string; rationale: string };
   if (!relaxation_type || !rationale) {
@@ -473,35 +657,45 @@ canopyRouter.post('/canopy/collective/:id/relax', authenticate, (req: AuthReques
 
 // ─── FORECAST / INDICATORS ─────────────────────────────────────────────────────
 
-// POST /api/canopy/session/:id/backcast
-canopyRouter.post('/canopy/session/:id/backcast', authenticate, (req: AuthRequest, res: Response): void => {
+canopyRouter.post('/canopy/session/:id/backcast', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   const { id: sessionId } = req.params;
-  const { preferred_horizon_id, time_horizon_years, current_beliefs } = req.body as Record<string, unknown>;
+  const { preferred_horizon_id, time_horizon_years } = req.body as Record<string, unknown>;
   if (!preferred_horizon_id || !time_horizon_years) {
     res.status(400).json({ error: 'preferred_horizon_id and time_horizon_years are required' }); return;
   }
-  const backcast = mockBackcast(time_horizon_years as number);
-  const forecastId = uuidv4();
-  db.prepare(`
-    INSERT INTO canopy_forecasts
-      (id, session_id, preferred_horizon_id, time_horizon_years, milestones, decision_gates, earliest_decisions, harvest_tree_seeds)
-    VALUES
-      (@id, @session_id, @preferred_horizon_id, @time_horizon_years, @milestones, @decision_gates, @earliest_decisions, @harvest_tree_seeds)
-  `).run({
-    id: forecastId,
-    session_id: sessionId,
-    preferred_horizon_id,
-    time_horizon_years,
-    milestones: JSON.stringify(backcast.milestones),
-    decision_gates: JSON.stringify(backcast.decision_gates),
-    earliest_decisions: JSON.stringify(backcast.earliest_decisions),
-    harvest_tree_seeds: JSON.stringify(backcast.harvest_tree_seeds),
-  });
-  const row = db.prepare('SELECT * FROM canopy_forecasts WHERE id = @id').get({ id: forecastId }) as Record<string, unknown>;
-  res.status(201).json({ data: parseForecast(row) });
+  try {
+    let backcast;
+    if (claude) {
+      try {
+        backcast = await backcastWithClaude(preferred_horizon_id as string, time_horizon_years as number);
+      } catch (aiErr) {
+        console.warn('Claude backcast failed, using mock:', aiErr);
+        backcast = mockBackcast(time_horizon_years as number);
+      }
+    } else {
+      backcast = mockBackcast(time_horizon_years as number);
+    }
+    const forecastId = uuidv4();
+    db.prepare(`
+      INSERT INTO canopy_forecasts
+        (id, session_id, preferred_horizon_id, time_horizon_years, milestones, decision_gates, earliest_decisions, harvest_tree_seeds)
+      VALUES
+        (@id, @session_id, @preferred_horizon_id, @time_horizon_years, @milestones, @decision_gates, @earliest_decisions, @harvest_tree_seeds)
+    `).run({
+      id: forecastId, session_id: sessionId, preferred_horizon_id, time_horizon_years,
+      milestones: JSON.stringify(backcast.milestones),
+      decision_gates: JSON.stringify(backcast.decision_gates),
+      earliest_decisions: JSON.stringify(backcast.earliest_decisions),
+      harvest_tree_seeds: JSON.stringify(backcast.harvest_tree_seeds),
+    });
+    const row = db.prepare('SELECT * FROM canopy_forecasts WHERE id = @id').get({ id: forecastId }) as Record<string, unknown>;
+    res.status(201).json({ data: parseForecast(row) });
+  } catch (err) {
+    console.error('canopy/backcast error:', err);
+    res.status(500).json({ error: 'Backcasting failed' });
+  }
 });
 
-// GET /api/canopy/session/:id/indicators
 canopyRouter.get('/canopy/session/:id/indicators', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const scenarios = db.prepare('SELECT * FROM canopy_scenarios WHERE session_id = @id').all({ id }) as
@@ -518,7 +712,6 @@ canopyRouter.get('/canopy/session/:id/indicators', authenticate, (req: AuthReque
   res.json({ data: indicators });
 });
 
-// POST /api/canopy/session/:id/drift
 canopyRouter.post('/canopy/session/:id/drift', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const { new_signals, drift_description, drift_logic, revision_type, monitor_focus } =
@@ -527,25 +720,14 @@ canopyRouter.post('/canopy/session/:id/drift', authenticate, (req: AuthRequest, 
     res.status(400).json({ error: 'drift_logic and revision_type are required' }); return;
   }
   res.status(201).json({
-    data: {
-      session_id: id,
-      logged_at: new Date().toISOString(),
-      new_signals,
-      drift_description,
-      drift_logic,
-      revision_type,
-      monitor_focus,
-    },
+    data: { session_id: id, logged_at: new Date().toISOString(), new_signals, drift_description, drift_logic, revision_type, monitor_focus },
   });
 });
 
-// GET /api/canopy/session/:id/revisions
 canopyRouter.get('/canopy/session/:id/revisions', authenticate, (req: AuthRequest, res: Response): void => {
-  const { id } = req.params;
   res.json({ data: [] });
 });
 
-// POST /api/canopy/session/:id/pwtc
 canopyRouter.post('/canopy/session/:id/pwtc', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const { scenario_id } = req.body as { scenario_id: string };
@@ -556,7 +738,6 @@ canopyRouter.post('/canopy/session/:id/pwtc', authenticate, (req: AuthRequest, r
   res.json({ data: { submitted: true, session_id: id, scenario_id } });
 });
 
-// POST /api/canopy/session/:id/harvest
 canopyRouter.post('/canopy/session/:id/harvest', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const forecast = db.prepare(
@@ -567,7 +748,6 @@ canopyRouter.post('/canopy/session/:id/harvest', authenticate, (req: AuthRequest
   res.json({ data: { harvest_tree_seeds: seeds, export_ready: true } });
 });
 
-// GET /api/canopy/session/:id/report
 canopyRouter.get('/canopy/session/:id/report', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const session = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as
