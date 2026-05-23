@@ -45,8 +45,10 @@ export const addSignal = (sessionId: string, body: { text: string; source?: stri
 export const updateSignalClassification = (signalId: string, body: Partial<Signal> & Record<string, unknown>) =>
   api.put<{ data: Signal }>(`/canopy/signal/${signalId}/classify`, body).then((r) => r.data.data);
 
-export const getSignals = (sessionId: string) =>
-  api.get<{ data: Signal[] }>(`/canopy/session/${sessionId}/signals`).then((r) => r.data.data);
+export const getSignals = (sessionId: string, shareToken?: string) => {
+  const params = shareToken ? `?share_token=${shareToken}` : '';
+  return api.get<{ data: Signal[] }>(`/canopy/session/${sessionId}/signals${params}`).then((r) => r.data.data);
+};
 
 // Triangle
 export const saveTriangle = (sessionId: string, body: Record<string, unknown>) =>
@@ -69,15 +71,19 @@ export const runScenarioAudit = (scenarioId: string) =>
 export const getScenarioCertification = (scenarioId: string) =>
   api.get(`/canopy/scenario/${scenarioId}/certification`).then((r) => r.data.data);
 
-export const getScenarios = (sessionId: string) =>
-  api.get<{ data: Scenario[] }>(`/canopy/session/${sessionId}/scenarios`).then((r) => r.data.data);
+export const getScenarios = (sessionId: string, shareToken?: string) => {
+  const params = shareToken ? `?share_token=${shareToken}` : '';
+  return api.get<{ data: Scenario[] }>(`/canopy/session/${sessionId}/scenarios${params}`).then((r) => r.data.data);
+};
 
 // Forecast
 export const generateBackcast = (sessionId: string, body: { preferred_horizon_id: string; time_horizon_years: number }) =>
   api.post<{ data: Forecast }>(`/canopy/session/${sessionId}/backcast`, body).then((r) => r.data.data);
 
-export const getForecast = (sessionId: string) =>
-  api.get<{ data: Forecast }>(`/canopy/session/${sessionId}/forecast`).then((r) => r.data.data);
+export const getForecast = (sessionId: string, shareToken?: string) => {
+  const params = shareToken ? `?share_token=${shareToken}` : '';
+  return api.get<{ data: Forecast }>(`/canopy/session/${sessionId}/forecast${params}`).then((r) => r.data.data);
+};
 
 export const getIndicators = (sessionId: string) =>
   api.get(`/canopy/session/${sessionId}/indicators`).then((r) => r.data.data);

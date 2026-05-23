@@ -16,9 +16,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     setHydrating(true);
     Promise.all([
       getSession(id, shareToken),
-      getSignals(id),
-      getScenarios(id),
-      getForecast(id).catch(() => null),
+      getSignals(id, shareToken),
+      getScenarios(id, shareToken),
+      getForecast(id, shareToken).catch(() => null),
     ])
       .then(([sess, sigs, scens, fore]) => {
         setSession(sess);

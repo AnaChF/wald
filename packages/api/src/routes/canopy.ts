@@ -26,8 +26,9 @@ async function callClaude(prompt: string): Promise<string> {
 }
 
 function extractJSON(raw: string): unknown {
-  const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-  return JSON.parse(stripped);
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) return JSON.parse(fenceMatch[1]);
+  return JSON.parse(raw.trim());
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -550,6 +551,11 @@ canopyRouter.post('/canopy/session/:id/signals', authenticate, (req: AuthRequest
 
 canopyRouter.put('/canopy/signal/:id/classify', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  const existing = db.prepare(
+    'SELECT s.id, se.user_id FROM canopy_signals s JOIN canopy_sessions se ON se.id = s.session_id WHERE s.id = @id'
+  ).get({ id }) as { id: string; user_id: string } | undefined;
+  if (!existing) { res.status(404).json({ error: 'Signal not found' }); return; }
+  if (existing.user_id !== req.userId) { res.status(403).json({ error: 'Access denied' }); return; }
   const { logic_type, strength, domain, cw_class, classifier_rationale, linked_bolts, futures_cone_layer, canvas_x, canvas_y } =
     req.body as Record<string, unknown>;
   const updates: Record<string, unknown> = { id };
@@ -574,8 +580,14 @@ canopyRouter.put('/canopy/signal/:id/classify', authenticate, (req: AuthRequest,
   res.json({ data: parseSignal(row) });
 });
 
-canopyRouter.get('/canopy/session/:id/signals', authenticate, (req: AuthRequest, res: Response): void => {
+canopyRouter.get('/canopy/session/:id/signals', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  const shareToken = req.query.share_token as string | undefined;
+  const session = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown> | undefined;
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  if (session.visibility !== 'shared' && session.user_id !== req.userId && !(shareToken && shareToken === session.share_token)) {
+    res.status(403).json({ error: 'Access denied' }); return;
+  }
   const rows = db.prepare('SELECT * FROM canopy_signals WHERE session_id = @id ORDER BY created_at ASC').all({ id }) as
     Record<string, unknown>[];
   res.json({ data: rows.map(parseSignal) });
@@ -585,6 +597,8 @@ canopyRouter.get('/canopy/session/:id/signals', authenticate, (req: AuthRequest,
 
 canopyRouter.post('/canopy/session/:id/triangle', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  const owned = db.prepare('SELECT id FROM canopy_sessions WHERE id = @id AND user_id = @user_id').get({ id, user_id: req.userId });
+  if (!owned) { res.status(403).json({ error: 'Access denied' }); return; }
   const { push, weight, pull, tensions } = req.body as Record<string, unknown>;
   db.prepare(`UPDATE canopy_sessions SET audit_result_seed = @seed, updated_at = @now WHERE id = @id`).run({
     id,
@@ -601,6 +615,8 @@ canopyRouter.post('/canopy/session/:id/triangle', authenticate, (req: AuthReques
 
 canopyRouter.post('/canopy/session/:id/cla', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  const owned = db.prepare('SELECT id FROM canopy_sessions WHERE id = @id AND user_id = @user_id').get({ id, user_id: req.userId });
+  if (!owned) { res.status(403).json({ error: 'Access denied' }); return; }
   const { litany, systemic, worldview, metaphor, centre_attributions } = req.body as Record<string, unknown>;
   db.prepare(`UPDATE canopy_sessions SET brick_seed = @cla, updated_at = @now WHERE id = @id`).run({
     id,
@@ -700,8 +716,14 @@ canopyRouter.get('/canopy/scenario/:id/certification', optionalAuth, (req: AuthR
   });
 });
 
-canopyRouter.get('/canopy/session/:id/scenarios', authenticate, (req: AuthRequest, res: Response): void => {
+canopyRouter.get('/canopy/session/:id/scenarios', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  const shareToken = req.query.share_token as string | undefined;
+  const session = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown> | undefined;
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  if (session.visibility !== 'shared' && session.user_id !== req.userId && !(shareToken && shareToken === session.share_token)) {
+    res.status(403).json({ error: 'Access denied' }); return;
+  }
   const rows = db.prepare('SELECT * FROM canopy_scenarios WHERE session_id = @id ORDER BY created_at ASC').all({ id }) as
     Record<string, unknown>[];
   res.json({ data: rows.map(parseScenario) });
@@ -772,8 +794,14 @@ canopyRouter.post('/canopy/session/:id/backcast', authenticate, async (req: Auth
   }
 });
 
-canopyRouter.get('/canopy/session/:id/forecast', authenticate, (req: AuthRequest, res: Response): void => {
+canopyRouter.get('/canopy/session/:id/forecast', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  const shareToken = req.query.share_token as string | undefined;
+  const session = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown> | undefined;
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  if (session.visibility !== 'shared' && session.user_id !== req.userId && !(shareToken && shareToken === session.share_token)) {
+    res.status(403).json({ error: 'Access denied' }); return;
+  }
   const row = db.prepare(
     'SELECT * FROM canopy_forecasts WHERE session_id = @id ORDER BY created_at DESC LIMIT 1'
   ).get({ id }) as Record<string, unknown> | undefined;
@@ -858,6 +886,8 @@ canopyRouter.get('/canopy/session/:id/revisions', authenticate, (req: AuthReques
 
 canopyRouter.post('/canopy/session/:id/pwtc', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  const owned = db.prepare('SELECT id FROM canopy_sessions WHERE id = @id AND user_id = @user_id').get({ id, user_id: req.userId });
+  if (!owned) { res.status(403).json({ error: 'Access denied' }); return; }
   const { scenario_id } = req.body as { scenario_id: string };
   if (!scenario_id) { res.status(400).json({ error: 'scenario_id is required' }); return; }
   db.prepare(`UPDATE canopy_sessions SET visibility = 'submitted', updated_at = @now WHERE id = @id`).run({
@@ -881,22 +911,3 @@ canopyRouter.post('/canopy/session/:id/harvest', authenticate, (req: AuthRequest
   res.json({ data: { harvest_tree_seeds: seeds, export_ready: true } });
 });
 
-canopyRouter.get('/canopy/session/:id/report', optionalAuth, (req: AuthRequest, res: Response): void => {
-  const { id } = req.params;
-  const session = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as
-    Record<string, unknown> | undefined;
-  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
-  const signals = db.prepare('SELECT * FROM canopy_signals WHERE session_id = @id').all({ id }) as Record<string, unknown>[];
-  const scenarios = db.prepare('SELECT * FROM canopy_scenarios WHERE session_id = @id').all({ id }) as Record<string, unknown>[];
-  const forecast = db.prepare(
-    'SELECT * FROM canopy_forecasts WHERE session_id = @id ORDER BY created_at DESC LIMIT 1'
-  ).get({ id }) as Record<string, unknown> | undefined;
-  res.json({
-    data: {
-      session: parseSession(session),
-      signals: signals.map(parseSignal),
-      scenarios: scenarios.map(parseScenario),
-      forecast: forecast ? parseForecast(forecast) : null,
-    },
-  });
-});
