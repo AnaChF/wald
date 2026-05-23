@@ -5,6 +5,7 @@ import { treeRouter } from './routes/tree';
 import { communityRouter } from './routes/community';
 import { userRouter } from './routes/user';
 import { canopyRouter } from './routes/canopy';
+import { canopyReportRouter } from './routes/canopy-report';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,6 +27,7 @@ app.use('/api', treeRouter);
 app.use('/api', communityRouter);
 app.use('/api', userRouter);
 app.use('/api', canopyRouter);
+app.use('/api', canopyReportRouter);
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', ecosystem: 'wald' }));
 

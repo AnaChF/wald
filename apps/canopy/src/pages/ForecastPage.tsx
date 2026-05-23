@@ -1,14 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useCanopyStore } from '../store';
-import { generateBackcast, getIndicators, logDrift } from '../api';
-import type { Milestone, DecisionGate } from '../types';
+import { generateBackcast, getIndicators, logDrift, exportHarvest, getReportUrl } from '../api';
+import type { Milestone, DecisionGate, HarvestSeed } from '../types';
 
 const STATUS_COLOURS: Record<string, string> = {
   quiet: 'rgba(45,96,72,0.5)',
   stirring: '#C17E3A',
   firing: '#D4A843',
   contradicted: '#8B6B9E',
+};
+
+const HARVEST_LAYER_LABELS: Record<string, string> = {
+  roots: 'Roots — foundational values and constraints',
+  trunk: 'Trunk — core beliefs and commitments',
+  branches: 'Branches — strategies and capabilities',
+  leaves: 'Leaves — actions and practices',
+  fruits: 'Fruits — outcomes and impacts',
 };
 
 const DRIFT_LOGIC = ['Deductive', 'Inductive', 'Abductive'];
@@ -26,6 +34,8 @@ export function ForecastPage() {
   const [drift, setDrift] = useState({ new_signals: '', drift_description: '', drift_logic: '', revision_type: '', monitor_focus: '' });
   const [driftSaving, setDriftSaving] = useState(false);
   const [driftSaved, setDriftSaved] = useState(false);
+  const [harvestExporting, setHarvestExporting] = useState(false);
+  const [harvestExported, setHarvestExported] = useState(false);
 
   useEffect(() => {
     setStep(6);
@@ -59,24 +69,59 @@ export function ForecastPage() {
     finally { setDriftSaving(false); }
   };
 
+  const handleExportHarvest = async () => {
+    if (!sessionId) return;
+    setHarvestExporting(true);
+    try {
+      await exportHarvest(sessionId);
+      setHarvestExported(true);
+    } catch {}
+    finally { setHarvestExporting(false); }
+  };
+
   const milestones: Milestone[] = forecast?.milestones ?? [];
   const gates: DecisionGate[] = forecast?.decision_gates ?? [];
+  const seeds: HarvestSeed[] = forecast?.harvest_tree_seeds ?? [];
   const earliestIds = new Set(forecast?.earliest_decisions ?? []);
+
+  // Group seeds by layer
+  const seedsByLayer = ['roots', 'trunk', 'branches', 'leaves', 'fruits'].reduce(
+    (acc, layer) => {
+      acc[layer] = seeds.filter((s) => s.layer === layer);
+      return acc;
+    },
+    {} as Record<string, HarvestSeed[]>,
+  );
 
   return (
     <div className="px-8 py-8" style={{ color: 'var(--parchment-text)' }}>
-      <h2 className="font-cormorant font-light text-3xl mb-2">Early Warning System</h2>
+      <div className="flex items-start justify-between mb-2">
+        <h2 className="font-cormorant font-light text-3xl">Early Warning System</h2>
+        {sessionId && (
+          <a
+            href={getReportUrl(sessionId)}
+            target="_blank"
+            rel="noreferrer"
+            className="px-4 py-2 rounded font-mono-dm transition-slow"
+            style={{
+              fontSize: 11,
+              background: 'rgba(45,96,72,0.15)',
+              border: '1px solid rgba(45,96,72,0.35)',
+              color: 'rgba(245,240,232,0.6)',
+              textDecoration: 'none',
+            }}
+          >
+            ↓ Download PDF report
+          </a>
+        )}
+      </div>
       <p className="font-spectral text-sm mb-8" style={{ color: 'rgba(245,240,232,0.45)' }}>
         Backcasting from your preferred scenario. Indicators. Drift detection.
       </p>
 
       {/* Backcast generation */}
-      <div
-        className="mb-8 rounded-xl px-6 py-6"
-        style={{ background: 'rgba(245,240,232,0.04)', border: '1px solid rgba(245,240,232,0.1)' }}
-      >
+      <div className="mb-8 rounded-xl px-6 py-6" style={{ background: 'rgba(245,240,232,0.04)', border: '1px solid rgba(245,240,232,0.1)' }}>
         <h3 className="font-cormorant font-light text-xl mb-4">Generate Backcasting Forecast</h3>
-
         {certifiedScenarios.length === 0 ? (
           <p className="font-spectral text-sm" style={{ color: 'rgba(245,240,232,0.35)', fontStyle: 'italic' }}>
             Certify at least one scenario in the Scenario Studio to enable backcasting.
@@ -84,9 +129,7 @@ export function ForecastPage() {
         ) : (
           <div className="flex items-end gap-4">
             <div className="flex-1">
-              <label className="block font-mono-dm mb-2" style={{ fontSize: 11, color: 'rgba(245,240,232,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Preferred scenario
-              </label>
+              <label className="block font-mono-dm mb-2" style={{ fontSize: 11, color: 'rgba(245,240,232,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Preferred scenario</label>
               <select
                 value={selectedScenarioId}
                 onChange={(e) => setSelectedScenarioId(e.target.value)}
@@ -100,16 +143,11 @@ export function ForecastPage() {
               </select>
             </div>
             <div>
-              <label className="block font-mono-dm mb-2" style={{ fontSize: 11, color: 'rgba(245,240,232,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Time horizon (years)
-              </label>
+              <label className="block font-mono-dm mb-2" style={{ fontSize: 11, color: 'rgba(245,240,232,0.45)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Years</label>
               <input
-                type="number"
-                value={timeHorizon}
-                min={1}
-                max={50}
+                type="number" value={timeHorizon} min={1} max={50}
                 onChange={(e) => setTimeHorizon(Number(e.target.value))}
-                className="w-24 rounded-lg px-3 py-3 font-mono-dm"
+                className="w-20 rounded-lg px-3 py-3 font-mono-dm"
                 style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid rgba(245,240,232,0.15)', color: 'var(--parchment-text)', outline: 'none' }}
               />
             </div>
@@ -133,8 +171,8 @@ export function ForecastPage() {
       {milestones.length > 0 && (
         <div className="mb-8">
           <h3 className="font-cormorant font-light text-xl mb-4">Backcasting Timeline</h3>
-          <div className="overflow-x-auto">
-            <div className="flex gap-4 pb-4" style={{ minWidth: milestones.length * 200 }}>
+          <div className="overflow-x-auto pb-4">
+            <div className="flex gap-4" style={{ minWidth: milestones.length * 200 }}>
               {milestones.map((m) => {
                 const gate = gates.find((g) => g.milestone_id === m.id);
                 const isEarliest = earliestIds.has(m.id);
@@ -143,40 +181,73 @@ export function ForecastPage() {
                     key={m.id}
                     className="shrink-0 rounded-lg px-4 py-4"
                     style={{
-                      width: 180,
+                      width: 188,
                       background: 'rgba(107,159,196,0.08)',
                       border: `1px solid ${isEarliest ? '#D4A843' : 'rgba(107,159,196,0.25)'}`,
                     }}
                   >
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="font-mono-dm" style={{ fontSize: 10, color: '#6B9FC4' }}>
-                        +{m.year_offset}y
-                      </span>
-                      {isEarliest && (
-                        <span className="font-mono-dm" style={{ fontSize: 9, color: '#D4A843' }}>◆ earliest</span>
-                      )}
-                      <span
-                        className="font-mono-dm px-1 rounded"
-                        style={{ fontSize: 9, background: 'rgba(107,159,196,0.15)', color: '#6B9FC4' }}
-                      >
-                        {m.type}
-                      </span>
+                      <span className="font-mono-dm" style={{ fontSize: 10, color: '#6B9FC4' }}>+{m.year_offset}y</span>
+                      {isEarliest && <span className="font-mono-dm" style={{ fontSize: 9, color: '#D4A843' }}>◆ earliest</span>}
+                      <span className="font-mono-dm px-1 rounded" style={{ fontSize: 9, background: 'rgba(107,159,196,0.15)', color: '#6B9FC4' }}>{m.type}</span>
                     </div>
                     <p className="font-cormorant text-sm font-light" style={{ color: 'var(--parchment-text)', lineHeight: 1.4 }}>
                       {m.description}
                     </p>
                     {gate && (
                       <div className="mt-3 pt-2" style={{ borderTop: '1px solid rgba(107,159,196,0.2)' }}>
-                        <p className="font-mono-dm" style={{ fontSize: 9, color: 'rgba(245,240,232,0.35)' }}>if yes:</p>
-                        <p className="font-spectral" style={{ fontSize: 11, color: 'rgba(245,240,232,0.5)' }}>{gate.if_yes_path}</p>
-                        <p className="font-mono-dm mt-1" style={{ fontSize: 9, color: 'rgba(245,240,232,0.35)' }}>if no:</p>
-                        <p className="font-spectral" style={{ fontSize: 11, color: 'rgba(245,240,232,0.5)' }}>{gate.if_no_path}</p>
+                        <p className="font-mono-dm" style={{ fontSize: 9, color: 'rgba(245,240,232,0.3)' }}>if yes →</p>
+                        <p className="font-spectral" style={{ fontSize: 11, color: 'rgba(245,240,232,0.55)' }}>{gate.if_yes_path}</p>
+                        <p className="font-mono-dm mt-1" style={{ fontSize: 9, color: 'rgba(245,240,232,0.3)' }}>if no →</p>
+                        <p className="font-spectral" style={{ fontSize: 11, color: 'rgba(245,240,232,0.55)' }}>{gate.if_no_path}</p>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Harvest Tree Seeds panel */}
+      {seeds.length > 0 && (
+        <div className="mb-8 rounded-xl px-6 py-6" style={{ background: 'rgba(139,107,158,0.06)', border: '1px solid rgba(139,107,158,0.2)' }}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-cormorant font-light text-xl">Harvest Tree Seeds</h3>
+            <button
+              onClick={handleExportHarvest}
+              disabled={harvestExporting || harvestExported}
+              className="px-4 py-1.5 rounded font-mono-dm transition-slow"
+              style={{
+                fontSize: 11,
+                background: harvestExported ? 'rgba(45,96,72,0.2)' : 'rgba(139,107,158,0.2)',
+                border: `1px solid ${harvestExported ? 'rgba(45,96,72,0.4)' : 'rgba(139,107,158,0.4)'}`,
+                color: harvestExported ? 'var(--positive)' : '#8B6B9E',
+              }}
+            >
+              {harvestExported ? '✓ Exported' : harvestExporting ? 'Exporting…' : 'Export to Harvest Trees™'}
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-4">
+            {['roots', 'trunk', 'branches', 'leaves', 'fruits'].map((layer) => {
+              const layerSeeds = seedsByLayer[layer];
+              if (!layerSeeds?.length) return null;
+              return (
+                <div key={layer}>
+                  <p className="font-mono-dm mb-2" style={{ fontSize: 10, color: '#8B6B9E', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    {HARVEST_LAYER_LABELS[layer]}
+                  </p>
+                  <div className="flex flex-col gap-1">
+                    {layerSeeds.map((s, i) => (
+                      <p key={i} className="font-spectral text-sm" style={{ color: 'rgba(245,240,232,0.65)', paddingLeft: 8, borderLeft: '2px solid rgba(139,107,158,0.3)' }}>
+                        {s.text}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -189,17 +260,12 @@ export function ForecastPage() {
             {indicators.map((sc: any) => (
               <div key={sc.scenario_id} className="rounded-lg px-5 py-4" style={{ background: 'rgba(245,240,232,0.03)', border: '1px solid rgba(245,240,232,0.08)' }}>
                 <p className="font-cormorant text-base font-light mb-3">{sc.scenario_title}</p>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-4">
                   {sc.indicators.map((ind: any, i: number) => (
                     <div key={i} className="flex items-center gap-2">
-                      <span
-                        className="w-2 h-2 rounded-full"
-                        style={{ background: STATUS_COLOURS[ind.status] ?? STATUS_COLOURS.quiet }}
-                      />
+                      <span className="w-2 h-2 rounded-full" style={{ background: STATUS_COLOURS[ind.status] ?? STATUS_COLOURS.quiet }} />
                       <span className="font-spectral text-sm" style={{ color: 'rgba(245,240,232,0.6)' }}>{ind.label}</span>
-                      <span className="font-mono-dm" style={{ fontSize: 10, color: STATUS_COLOURS[ind.status] ?? STATUS_COLOURS.quiet }}>
-                        {ind.status}
-                      </span>
+                      <span className="font-mono-dm" style={{ fontSize: 10, color: STATUS_COLOURS[ind.status] ?? STATUS_COLOURS.quiet }}>{ind.status}</span>
                     </div>
                   ))}
                 </div>
@@ -210,10 +276,7 @@ export function ForecastPage() {
       )}
 
       {/* Drift Detector */}
-      <div
-        className="rounded-xl px-6 py-5"
-        style={{ background: 'rgba(245,240,232,0.03)', border: '1px solid rgba(245,240,232,0.08)' }}
-      >
+      <div className="rounded-xl px-6 py-5" style={{ background: 'rgba(245,240,232,0.03)', border: '1px solid rgba(245,240,232,0.08)' }}>
         <button
           onClick={() => setDriftOpen((v) => !v)}
           className="flex items-center gap-3 w-full text-left font-cormorant font-light text-xl"
@@ -224,9 +287,9 @@ export function ForecastPage() {
         {driftOpen && (
           <form onSubmit={handleDriftSubmit} className="mt-5 flex flex-col gap-4">
             {[
-              { key: 'new_signals', label: 'Did you observe any new signals this week?', type: 'text' },
-              { key: 'drift_description', label: 'Where did the environment drift from the scenario?', type: 'text' },
-              { key: 'monitor_focus', label: 'What will you monitor more closely next week?', type: 'text' },
+              { key: 'new_signals', label: 'Did you observe any new signals this week?' },
+              { key: 'drift_description', label: 'Where did the environment drift from the scenario?' },
+              { key: 'monitor_focus', label: 'What will you monitor more closely next week?' },
             ].map(({ key, label }) => (
               <div key={key}>
                 <label className="block font-spectral text-sm mb-2" style={{ color: 'rgba(245,240,232,0.6)' }}>{label}</label>
@@ -245,9 +308,7 @@ export function ForecastPage() {
               </label>
               <div className="flex gap-2">
                 {DRIFT_LOGIC.map((l) => (
-                  <button
-                    type="button"
-                    key={l}
+                  <button type="button" key={l}
                     onClick={() => setDrift((prev) => ({ ...prev, drift_logic: l }))}
                     className="px-3 py-1.5 rounded font-mono-dm transition-slow"
                     style={{
@@ -256,9 +317,7 @@ export function ForecastPage() {
                       border: `1px solid ${drift.drift_logic === l ? 'rgba(45,96,72,0.6)' : 'rgba(245,240,232,0.12)'}`,
                       color: drift.drift_logic === l ? 'var(--parchment-text)' : 'rgba(245,240,232,0.4)',
                     }}
-                  >
-                    {l}
-                  </button>
+                  >{l}</button>
                 ))}
               </div>
             </div>
@@ -269,9 +328,7 @@ export function ForecastPage() {
               </label>
               <div className="flex gap-2">
                 {REVISION_TYPES.map((r) => (
-                  <button
-                    type="button"
-                    key={r}
+                  <button type="button" key={r}
                     onClick={() => setDrift((prev) => ({ ...prev, revision_type: r }))}
                     className="px-3 py-1.5 rounded font-mono-dm transition-slow"
                     style={{
@@ -280,9 +337,7 @@ export function ForecastPage() {
                       border: `1px solid ${drift.revision_type === r ? 'rgba(139,107,158,0.6)' : 'rgba(245,240,232,0.12)'}`,
                       color: drift.revision_type === r ? 'var(--parchment-text)' : 'rgba(245,240,232,0.4)',
                     }}
-                  >
-                    {r}
-                  </button>
+                  >{r}</button>
                 ))}
               </div>
             </div>
@@ -291,11 +346,7 @@ export function ForecastPage() {
               type="submit"
               disabled={driftSaving || !drift.drift_logic || !drift.revision_type}
               className="self-start px-6 py-2.5 rounded-lg font-cormorant text-base font-light transition-slow"
-              style={{
-                background: 'rgba(45,96,72,0.25)',
-                border: '1px solid rgba(45,96,72,0.45)',
-                color: 'var(--parchment-text)',
-              }}
+              style={{ background: 'rgba(45,96,72,0.25)', border: '1px solid rgba(45,96,72,0.45)', color: 'var(--parchment-text)' }}
             >
               {driftSaved ? 'Logged.' : driftSaving ? 'Logging…' : 'Log this week'}
             </button>

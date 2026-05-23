@@ -91,5 +91,12 @@ export const submitPWTC = (sessionId: string, scenarioId: string) =>
 export const exportHarvest = (sessionId: string) =>
   api.post(`/canopy/session/${sessionId}/harvest`).then((r) => r.data.data);
 
-export const getReport = (sessionId: string) =>
-  api.get(`/canopy/session/${sessionId}/report`).then((r) => r.data.data);
+// Cross-app imports: fetch user's existing Walditorium and Harvest Tree sessions
+export const getWalditoriumSessions = (userId: string) =>
+  api.get<{ data: Record<string, unknown>[] }>(`/user/${userId}/stamps`).then((r) => r.data.data);
+
+export const getHarvestTrees = (userId: string) =>
+  api.get<{ data: Record<string, unknown>[] }>(`/tree/user/${userId}/trees`).then((r) => r.data.data);
+
+// Report download URL (returns PDF)
+export const getReportUrl = (sessionId: string) => `/api/canopy/session/${sessionId}/report`;
