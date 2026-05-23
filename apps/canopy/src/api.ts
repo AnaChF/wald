@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type {
   CanopySession, Signal, ClassificationResult, Scenario,
-  ScenarioAuditResult, Forecast,
+  ScenarioAuditResult, Forecast, HarvestSeed,
 } from './types';
 
 const BASE = '/api';
@@ -92,14 +92,23 @@ export const submitPWTC = (sessionId: string, scenarioId: string) =>
   api.post(`/canopy/session/${sessionId}/pwtc`, { scenario_id: scenarioId }).then((r) => r.data.data);
 
 export const exportHarvest = (sessionId: string) =>
-  api.post(`/canopy/session/${sessionId}/harvest`).then((r) => r.data.data);
+  api.post<{ data: { harvest_tree_seeds: HarvestSeed[]; export_ready: boolean } }>(
+    `/canopy/session/${sessionId}/harvest`,
+  ).then((r) => r.data.data);
 
-// Cross-app imports
+// Harvest Trees cross-app: create a tree and populate its layers
+export const createHarvestTree = (title: string, domain: string) =>
+  api.post<{ data: Record<string, unknown> }>('/tree/create', { title, domain }).then((r) => r.data.data);
+
+export const updateHarvestTreeLayer = (treeId: string, layer: string, nodes: unknown[]) =>
+  api.put<{ data: Record<string, unknown> }>(`/tree/${treeId}/layer/${layer}`, nodes).then((r) => r.data.data);
+
+// Cross-app read: user's existing Walditorium stamps and Harvest Trees
 export const getWalditoriumSessions = (userId: string) =>
   api.get<{ data: Record<string, unknown>[] }>(`/user/${userId}/stamps`).then((r) => r.data.data);
 
 export const getHarvestTrees = (userId: string) =>
-  api.get<{ data: Record<string, unknown>[] }>(`/tree/user/${userId}/trees`).then((r) => r.data.data);
+  api.get<{ data: Record<string, unknown>[] }>(`/user/${userId}/trees`).then((r) => r.data.data);
 
 // Report download URL (returns PDF)
 export const getReportUrl = (sessionId: string) => `/api/canopy/session/${sessionId}/report`;

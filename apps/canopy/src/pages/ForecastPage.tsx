@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useCanopyStore } from '../store';
-import { generateBackcast, getIndicators, logDrift, exportHarvest, getReportUrl, submitPWTC, getRevisions } from '../api';
+import {
+  generateBackcast, getIndicators, logDrift, exportHarvest, getReportUrl,
+  submitPWTC, getRevisions, createHarvestTree, updateHarvestTreeLayer,
+} from '../api';
 import type { Milestone, DecisionGate, HarvestSeed } from '../types';
 
 const STATUS_COLOURS: Record<string, string> = {
@@ -20,20 +23,21 @@ const HARVEST_LAYER_LABELS: Record<string, string> = {
 };
 
 const REVISION_META: Record<string, { label: string; color: string }> = {
-  session_created:   { label: 'Session created',     color: 'rgba(45,96,72,0.9)' },
-  framing_edit:      { label: 'Framing edited',       color: 'rgba(45,96,72,0.6)' },
-  signal_added:      { label: 'Signal added',         color: '#6B9FC4' },
-  signal_classified: { label: 'Signal classified',    color: '#6B9FC4' },
-  triangle_updated:  { label: 'Triangle updated',     color: '#C17E3A' },
-  cla_updated:       { label: 'CLA updated',          color: '#8B7355' },
-  scenario_audited:  { label: 'Scenario audited',     color: '#D4A843' },
-  forecast_generated:{ label: 'Forecast generated',  color: '#8B6B9E' },
-  drift_logged:      { label: 'Drift logged',         color: '#C17E3A' },
-  pwtc_submitted:    { label: 'Submitted to PWTC',    color: '#6B9FC4' },
+  session_created:    { label: 'Session created',    color: 'rgba(45,96,72,0.9)' },
+  framing_edit:       { label: 'Framing edited',      color: 'rgba(45,96,72,0.6)' },
+  signal_added:       { label: 'Signal added',        color: '#6B9FC4' },
+  signal_classified:  { label: 'Signal classified',   color: '#6B9FC4' },
+  triangle_updated:   { label: 'Triangle updated',    color: '#C17E3A' },
+  cla_updated:        { label: 'CLA updated',         color: '#8B7355' },
+  scenario_audited:   { label: 'Scenario audited',    color: '#D4A843' },
+  forecast_generated: { label: 'Forecast generated',  color: '#8B6B9E' },
+  drift_logged:       { label: 'Drift logged',        color: '#C17E3A' },
+  pwtc_submitted:     { label: 'Submitted to PWTC',   color: '#6B9FC4' },
 };
 
 const DRIFT_LOGIC = ['Deductive', 'Inductive', 'Abductive'];
 const REVISION_TYPES = ['Expansion', 'Contraction', 'Full revision'];
+const HARVEST_LAYERS = ['roots', 'trunk', 'branches', 'leaves', 'fruits'] as const;
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -45,9 +49,23 @@ function relativeTime(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+function seedsToLayerNodes(seeds: HarvestSeed[], layer: string): unknown[] {
+  return seeds.map((s) => {
+    const id = s.linked_milestone_id || String(Date.now() + Math.random());
+    switch (layer) {
+      case 'roots':    return { id, type: 'value', text: s.text, waldconsistency_level: 'CS', is_negotiable: true };
+      case 'trunk':    return { id, text: s.text, waldconsistency_level: 'CS', supports_roots: [] };
+      case 'branches': return { id, text: s.text, waldconsistency_level: 'CS' };
+      case 'leaves':   return { id, practice: s.text };
+      case 'fruits':   return { id, outcome: s.text };
+      default:         return { id, text: s.text };
+    }
+  });
+}
+
 export function ForecastPage() {
   const { id: sessionId } = useParams<{ id: string }>();
-  const { scenarios, forecast, setForecast, setStep } = useCanopyStore();
+  const { session, scenarios, forecast, setForecast, setStep } = useCanopyStore();
 
   const [selectedScenarioId, setSelectedScenarioId] = useState('');
   const [timeHorizon, setTimeHorizon] = useState(10);
@@ -61,6 +79,8 @@ export function ForecastPage() {
   const [driftSaved, setDriftSaved] = useState(false);
   const [harvestExporting, setHarvestExporting] = useState(false);
   const [harvestExported, setHarvestExported] = useState(false);
+  const [exportedTreeId, setExportedTreeId] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const [pwtcScenarioId, setPwtcScenarioId] = useState('');
   const [pwtcConfirmOpen, setPwtcConfirmOpen] = useState(false);
@@ -85,7 +105,6 @@ export function ForecastPage() {
         time_horizon_years: timeHorizon,
       });
       setForecast(result);
-      // Reload revisions after generating forecast
       getRevisions(sessionId).then(setRevisions).catch(() => {});
     } catch {}
     finally { setGenerating(false); }
@@ -107,11 +126,36 @@ export function ForecastPage() {
   const handleExportHarvest = async () => {
     if (!sessionId) return;
     setHarvestExporting(true);
+    setExportError(null);
     try {
-      await exportHarvest(sessionId);
+      // 1. Fetch seeds from the canopy forecast
+      const { harvest_tree_seeds: seeds } = await exportHarvest(sessionId);
+
+      // 2. Create a new Harvest Tree
+      const treeTitle = session?.title
+        ? `Canopy → ${session.title}`
+        : `Canopy foresight seeds — ${new Date().toLocaleDateString('en-GB')}`;
+      const tree = await createHarvestTree(treeTitle, 'environment') as { id: string };
+
+      // 3. Group seeds by layer and populate each layer
+      const seedsByLayer = Object.fromEntries(
+        HARVEST_LAYERS.map((l) => [l, (seeds as HarvestSeed[]).filter((s) => s.layer === l)]),
+      ) as Record<typeof HARVEST_LAYERS[number], HarvestSeed[]>;
+
+      await Promise.all(
+        HARVEST_LAYERS
+          .filter((l) => seedsByLayer[l].length > 0)
+          .map((l) => updateHarvestTreeLayer(tree.id, l, seedsToLayerNodes(seedsByLayer[l], l))),
+      );
+
       setHarvestExported(true);
-    } catch {}
-    finally { setHarvestExporting(false); }
+      setExportedTreeId(tree.id);
+    } catch (err) {
+      console.error('Harvest export failed:', err);
+      setExportError('Export failed. Check that the API server is running.');
+    } finally {
+      setHarvestExporting(false);
+    }
   };
 
   const handlePwtcSubmit = async () => {
@@ -131,11 +175,8 @@ export function ForecastPage() {
   const seeds: HarvestSeed[] = forecast?.harvest_tree_seeds ?? [];
   const earliestIds = new Set(forecast?.earliest_decisions ?? []);
 
-  const seedsByLayer = ['roots', 'trunk', 'branches', 'leaves', 'fruits'].reduce(
-    (acc, layer) => {
-      acc[layer] = seeds.filter((s) => s.layer === layer);
-      return acc;
-    },
+  const seedsByLayer = HARVEST_LAYERS.reduce(
+    (acc, layer) => { acc[layer] = seeds.filter((s) => s.layer === layer); return acc; },
     {} as Record<string, HarvestSeed[]>,
   );
 
@@ -261,22 +302,32 @@ export function ForecastPage() {
         <div className="mb-8 rounded-xl px-6 py-6" style={{ background: 'rgba(139,107,158,0.06)', border: '1px solid rgba(139,107,158,0.2)' }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-cormorant font-light text-xl">Harvest Tree Seeds</h3>
-            <button
-              onClick={handleExportHarvest}
-              disabled={harvestExporting || harvestExported}
-              className="px-4 py-1.5 rounded font-mono-dm transition-slow"
-              style={{
-                fontSize: 11,
-                background: harvestExported ? 'rgba(45,96,72,0.2)' : 'rgba(139,107,158,0.2)',
-                border: `1px solid ${harvestExported ? 'rgba(45,96,72,0.4)' : 'rgba(139,107,158,0.4)'}`,
-                color: harvestExported ? 'var(--positive)' : '#8B6B9E',
-              }}
-            >
-              {harvestExported ? '✓ Exported' : harvestExporting ? 'Exporting…' : 'Export to Harvest Trees™'}
-            </button>
+            {!harvestExported ? (
+              <button
+                onClick={handleExportHarvest}
+                disabled={harvestExporting}
+                className="px-4 py-1.5 rounded font-mono-dm transition-slow"
+                style={{
+                  fontSize: 11,
+                  background: 'rgba(139,107,158,0.2)',
+                  border: '1px solid rgba(139,107,158,0.4)',
+                  color: '#8B6B9E',
+                }}
+              >
+                {harvestExporting ? 'Creating tree…' : 'Export to Harvest Trees™'}
+              </button>
+            ) : (
+              <span
+                className="font-mono-dm"
+                style={{ fontSize: 11, color: 'var(--positive)' }}
+              >
+                ✓ Tree created
+              </span>
+            )}
           </div>
+
           <div className="grid grid-cols-1 gap-4">
-            {['roots', 'trunk', 'branches', 'leaves', 'fruits'].map((layer) => {
+            {HARVEST_LAYERS.map((layer) => {
               const layerSeeds = seedsByLayer[layer];
               if (!layerSeeds?.length) return null;
               return (
@@ -295,6 +346,24 @@ export function ForecastPage() {
               );
             })}
           </div>
+
+          {/* Export result */}
+          {exportedTreeId && (
+            <div className="mt-4 pt-4 flex items-center gap-3" style={{ borderTop: '1px solid rgba(139,107,158,0.2)' }}>
+              <span style={{ color: 'var(--positive)' }}>✓</span>
+              <div>
+                <p className="font-spectral text-sm" style={{ color: 'var(--positive)' }}>
+                  Harvest Tree created successfully.
+                </p>
+                <p className="font-mono-dm" style={{ fontSize: 10, color: 'rgba(245,240,232,0.3)', marginTop: 2 }}>
+                  tree/{exportedTreeId}
+                </p>
+              </div>
+            </div>
+          )}
+          {exportError && (
+            <p className="mt-3 font-spectral text-sm" style={{ color: '#C17E3A' }}>{exportError}</p>
+          )}
         </div>
       )}
 
@@ -432,7 +501,6 @@ export function ForecastPage() {
                   const meta = REVISION_META[r.revision_type] ?? { label: r.revision_type, color: 'rgba(245,240,232,0.4)' };
                   return (
                     <li key={r.id ?? i} className="relative pb-4">
-                      {/* Timeline dot */}
                       <span
                         className="absolute w-2 h-2 rounded-full"
                         style={{ background: meta.color, left: -20, top: 4 }}

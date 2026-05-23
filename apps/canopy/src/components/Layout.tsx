@@ -1,19 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { SessionSidebar } from './SessionSidebar';
 import { useCanopyStore } from '../store';
 import { getSession, getSignals, getScenarios, getForecast } from '../api';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const { session, setSession, setSignals, setScenarios, setForecast, setTriangle, setCLA } = useCanopyStore();
   const [hydrating, setHydrating] = useState(false);
 
   useEffect(() => {
     if (!id || session?.id === id) return;
+    const shareToken = new URLSearchParams(location.search).get('share_token') ?? undefined;
     setHydrating(true);
     Promise.all([
-      getSession(id),
+      getSession(id, shareToken),
       getSignals(id),
       getScenarios(id),
       getForecast(id).catch(() => null),
@@ -23,7 +25,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         setSignals(sigs);
         setScenarios(scens);
         if (fore) setForecast(fore);
-        // Restore derived state from session seeds so Triangle + CLA pages pre-populate
         const triangle = sess.audit_result_seed?.futures_triangle;
         if (triangle) setTriangle(triangle);
         const cla = sess.brick_seed;
@@ -31,7 +32,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       })
       .catch((err) => console.error('Session hydration failed:', err))
       .finally(() => setHydrating(false));
-  }, [id]);
+  }, [id, location.search]);
 
   if (hydrating) {
     return (
