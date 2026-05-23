@@ -11,7 +11,7 @@ export interface CanopySession {
   title: string | null;
   foresight_question: string | null;
   audit_result_seed: AuditResultSeed | null;
-  brick_seed: BrickSeed | null;
+  brick_seed: CLAData | null;
   centre_description: string | null;
   status: string;
   visibility: SessionVisibility;
@@ -25,15 +25,6 @@ export interface AuditResultSeed {
   nuts?: AuditNut[];
   bricks?: AuditBrick[];
   futures_triangle?: FuturesTriangle;
-  cla?: CLAData;
-}
-
-export interface BrickSeed {
-  roots?: string[];
-  trunk?: string[];
-  branches?: string[];
-  leaves?: string[];
-  fruits?: string[];
 }
 
 export interface AuditBolt { id: string; claim: string; }

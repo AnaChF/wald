@@ -6,7 +6,7 @@ import { getSession, getSignals, getScenarios, getForecast } from '../api';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { id } = useParams<{ id: string }>();
-  const { session, setSession, setSignals, setScenarios, setForecast } = useCanopyStore();
+  const { session, setSession, setSignals, setScenarios, setForecast, setTriangle, setCLA } = useCanopyStore();
   const [hydrating, setHydrating] = useState(false);
 
   useEffect(() => {
@@ -23,6 +23,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         setSignals(sigs);
         setScenarios(scens);
         if (fore) setForecast(fore);
+        // Restore derived state from session seeds so Triangle + CLA pages pre-populate
+        const triangle = sess.audit_result_seed?.futures_triangle;
+        if (triangle) setTriangle(triangle);
+        const cla = sess.brick_seed;
+        if (cla?.litany) setCLA(cla);
       })
       .catch((err) => console.error('Session hydration failed:', err))
       .finally(() => setHydrating(false));
