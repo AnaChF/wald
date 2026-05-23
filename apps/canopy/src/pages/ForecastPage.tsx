@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useCanopyStore } from '../store';
-import { generateBackcast, getIndicators, logDrift, exportHarvest, getReportUrl, submitPWTC } from '../api';
+import { generateBackcast, getIndicators, logDrift, exportHarvest, getReportUrl, submitPWTC, getRevisions } from '../api';
 import type { Milestone, DecisionGate, HarvestSeed } from '../types';
 
 const STATUS_COLOURS: Record<string, string> = {
@@ -19,8 +19,31 @@ const HARVEST_LAYER_LABELS: Record<string, string> = {
   fruits: 'Fruits — outcomes and impacts',
 };
 
+const REVISION_META: Record<string, { label: string; color: string }> = {
+  session_created:   { label: 'Session created',     color: 'rgba(45,96,72,0.9)' },
+  framing_edit:      { label: 'Framing edited',       color: 'rgba(45,96,72,0.6)' },
+  signal_added:      { label: 'Signal added',         color: '#6B9FC4' },
+  signal_classified: { label: 'Signal classified',    color: '#6B9FC4' },
+  triangle_updated:  { label: 'Triangle updated',     color: '#C17E3A' },
+  cla_updated:       { label: 'CLA updated',          color: '#8B7355' },
+  scenario_audited:  { label: 'Scenario audited',     color: '#D4A843' },
+  forecast_generated:{ label: 'Forecast generated',  color: '#8B6B9E' },
+  drift_logged:      { label: 'Drift logged',         color: '#C17E3A' },
+  pwtc_submitted:    { label: 'Submitted to PWTC',    color: '#6B9FC4' },
+};
+
 const DRIFT_LOGIC = ['Deductive', 'Inductive', 'Abductive'];
 const REVISION_TYPES = ['Expansion', 'Contraction', 'Full revision'];
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
 
 export function ForecastPage() {
   const { id: sessionId } = useParams<{ id: string }>();
@@ -30,6 +53,8 @@ export function ForecastPage() {
   const [timeHorizon, setTimeHorizon] = useState(10);
   const [generating, setGenerating] = useState(false);
   const [indicators, setIndicators] = useState<Record<string, unknown>[]>([]);
+  const [revisions, setRevisions] = useState<Record<string, unknown>[]>([]);
+  const [revisionsOpen, setRevisionsOpen] = useState(false);
   const [driftOpen, setDriftOpen] = useState(false);
   const [drift, setDrift] = useState({ new_signals: '', drift_description: '', drift_logic: '', revision_type: '', monitor_focus: '' });
   const [driftSaving, setDriftSaving] = useState(false);
@@ -37,7 +62,6 @@ export function ForecastPage() {
   const [harvestExporting, setHarvestExporting] = useState(false);
   const [harvestExported, setHarvestExported] = useState(false);
 
-  // PWTC submission state
   const [pwtcScenarioId, setPwtcScenarioId] = useState('');
   const [pwtcConfirmOpen, setPwtcConfirmOpen] = useState(false);
   const [pwtcSubmitting, setPwtcSubmitting] = useState(false);
@@ -45,7 +69,9 @@ export function ForecastPage() {
 
   useEffect(() => {
     setStep(6);
-    if (sessionId) getIndicators(sessionId).then(setIndicators).catch(() => {});
+    if (!sessionId) return;
+    getIndicators(sessionId).then(setIndicators).catch(() => {});
+    getRevisions(sessionId).then(setRevisions).catch(() => {});
   }, [sessionId]);
 
   const certifiedScenarios = scenarios.filter((s) => s.consistency_certified);
@@ -59,6 +85,8 @@ export function ForecastPage() {
         time_horizon_years: timeHorizon,
       });
       setForecast(result);
+      // Reload revisions after generating forecast
+      getRevisions(sessionId).then(setRevisions).catch(() => {});
     } catch {}
     finally { setGenerating(false); }
   };
@@ -71,6 +99,7 @@ export function ForecastPage() {
       await logDrift(sessionId, drift);
       setDriftSaved(true);
       setDrift({ new_signals: '', drift_description: '', drift_logic: '', revision_type: '', monitor_focus: '' });
+      getRevisions(sessionId).then(setRevisions).catch(() => {});
     } catch {}
     finally { setDriftSaving(false); }
   };
@@ -92,6 +121,7 @@ export function ForecastPage() {
       await submitPWTC(sessionId, pwtcScenarioId);
       setPwtcSubmitted(true);
       setPwtcConfirmOpen(false);
+      getRevisions(sessionId).then(setRevisions).catch(() => {});
     } catch {}
     finally { setPwtcSubmitting(false); }
   };
@@ -367,6 +397,76 @@ export function ForecastPage() {
               {driftSaved ? 'Logged.' : driftSaving ? 'Logging…' : 'Log this week'}
             </button>
           </form>
+        )}
+      </div>
+
+      {/* Revision Trail */}
+      <div className="mb-8 rounded-xl px-6 py-5" style={{ background: 'rgba(245,240,232,0.02)', border: '1px solid rgba(245,240,232,0.07)' }}>
+        <button
+          onClick={() => setRevisionsOpen((v) => !v)}
+          className="flex items-center justify-between w-full text-left"
+        >
+          <span className="font-cormorant font-light text-xl">Revision Trail</span>
+          <span className="flex items-center gap-2">
+            {revisions.length > 0 && (
+              <span
+                className="font-mono-dm px-2 py-0.5 rounded-full"
+                style={{ fontSize: 10, background: 'rgba(45,96,72,0.2)', color: 'rgba(245,240,232,0.45)' }}
+              >
+                {revisions.length}
+              </span>
+            )}
+            <span style={{ color: 'rgba(245,240,232,0.3)', fontSize: 12 }}>{revisionsOpen ? '▲' : '▼'}</span>
+          </span>
+        </button>
+
+        {revisionsOpen && (
+          <div className="mt-5">
+            {revisions.length === 0 ? (
+              <p className="font-spectral text-sm" style={{ color: 'rgba(245,240,232,0.3)', fontStyle: 'italic' }}>
+                No revisions recorded yet.
+              </p>
+            ) : (
+              <ol className="flex flex-col gap-0" style={{ borderLeft: '1px solid rgba(245,240,232,0.08)', paddingLeft: 16 }}>
+                {revisions.map((r: any, i) => {
+                  const meta = REVISION_META[r.revision_type] ?? { label: r.revision_type, color: 'rgba(245,240,232,0.4)' };
+                  return (
+                    <li key={r.id ?? i} className="relative pb-4">
+                      {/* Timeline dot */}
+                      <span
+                        className="absolute w-2 h-2 rounded-full"
+                        style={{ background: meta.color, left: -20, top: 4 }}
+                      />
+                      <div className="flex items-baseline gap-2 mb-0.5">
+                        <span
+                          className="font-mono-dm px-1.5 py-0.5 rounded"
+                          style={{ fontSize: 10, background: `${meta.color}22`, color: meta.color }}
+                        >
+                          {meta.label}
+                        </span>
+                        <span className="font-mono-dm" style={{ fontSize: 10, color: 'rgba(245,240,232,0.25)' }}>
+                          {relativeTime(r.created_at as string)}
+                        </span>
+                        <span className="font-mono-dm" style={{ fontSize: 10, color: 'rgba(245,240,232,0.18)' }}>
+                          {r.entity_type}
+                        </span>
+                      </div>
+                      {r.trigger_signal && (
+                        <p className="font-spectral text-xs mt-0.5" style={{ color: 'rgba(245,240,232,0.5)' }}>
+                          “{r.trigger_signal}”
+                        </p>
+                      )}
+                      {r.rationale && (
+                        <p className="font-spectral text-xs mt-0.5" style={{ color: 'rgba(245,240,232,0.4)', fontStyle: 'italic' }}>
+                          {r.rationale}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </div>
         )}
       </div>
 

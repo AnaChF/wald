@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useCanopyStore } from '../store';
+import { shareSession } from '../api';
 
 const STEPS = [
   { step: 1, label: 'Framing', path: '', icon: '○' },
@@ -16,6 +18,9 @@ export function SessionSidebar() {
   const location = useLocation();
   const { session, currentStep, signals, scenarios } = useCanopyStore();
 
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+
   const completionMap: Record<number, boolean> = {
     1: !!session?.foresight_question,
     2: signals.length > 0,
@@ -23,6 +28,19 @@ export function SessionSidebar() {
     4: !!session?.brick_seed,
     5: scenarios.some((s) => s.consistency_certified),
     6: false,
+  };
+
+  const handleShare = async () => {
+    if (!id || shareLoading) return;
+    setShareLoading(true);
+    try {
+      const result = await shareSession(id);
+      const fullUrl = `${window.location.origin}${result.share_url}`;
+      await navigator.clipboard.writeText(fullUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 3000);
+    } catch {}
+    finally { setShareLoading(false); }
   };
 
   return (
@@ -63,7 +81,7 @@ export function SessionSidebar() {
               <button
                 onClick={() => id && navigate(href)}
                 disabled={!id}
-                className="w-full text-left flex items-center gap-3 px-3 py-2 rounded transition-slow group"
+                className="w-full text-left flex items-center gap-3 px-3 py-2 rounded transition-slow"
                 style={{
                   background: isActive ? 'rgba(45,96,72,0.35)' : 'transparent',
                   color: isActive
@@ -91,7 +109,7 @@ export function SessionSidebar() {
                     </svg>
                   )}
                   {!isDone && (
-                    <span className="font-mono-dm text-xs" style={{ fontSize: '9px' }}>
+                    <span className="font-mono-dm" style={{ fontSize: '9px' }}>
                       {step}
                     </span>
                   )}
@@ -103,10 +121,27 @@ export function SessionSidebar() {
         })}
       </ol>
 
-      <div className="mt-8 px-3 py-3 rounded" style={{ background: 'rgba(45,96,72,0.1)' }}>
-        <p className="text-xs font-mono-dm" style={{ color: 'rgba(245,240,232,0.3)', fontSize: '10px' }}>
-          Wald™ ecosystem
-        </p>
+      <div className="mt-8 flex flex-col gap-2">
+        {id && (
+          <button
+            onClick={handleShare}
+            disabled={shareLoading}
+            className="w-full px-3 py-2 rounded font-mono-dm text-left transition-slow"
+            style={{
+              fontSize: 11,
+              background: shareCopied ? 'rgba(45,96,72,0.25)' : 'rgba(245,240,232,0.05)',
+              border: `1px solid ${shareCopied ? 'rgba(45,96,72,0.5)' : 'rgba(245,240,232,0.12)'}`,
+              color: shareCopied ? 'var(--positive)' : 'rgba(245,240,232,0.4)',
+            }}
+          >
+            {shareCopied ? '✓ Link copied' : shareLoading ? 'Sharing…' : '↪ Share session'}
+          </button>
+        )}
+        <div className="px-3 py-2 rounded" style={{ background: 'rgba(45,96,72,0.1)' }}>
+          <p className="font-mono-dm" style={{ color: 'rgba(245,240,232,0.3)', fontSize: '10px' }}>
+            Wald™ ecosystem
+          </p>
+        </div>
       </div>
     </nav>
   );
