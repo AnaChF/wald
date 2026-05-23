@@ -203,4 +203,17 @@ CREATE TABLE IF NOT EXISTS canopy_forecasts (
   early_indicators TEXT DEFAULT '[]',
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS canopy_revisions (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  revision_type TEXT NOT NULL,
+  trigger_signal TEXT,
+  rationale TEXT,
+  snapshot TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
 `;

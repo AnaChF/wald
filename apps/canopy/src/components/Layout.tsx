@@ -1,7 +1,44 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { SessionSidebar } from './SessionSidebar';
+import { useCanopyStore } from '../store';
+import { getSession, getSignals, getScenarios } from '../api';
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const { id } = useParams<{ id: string }>();
+  const { session, setSession, setSignals, setScenarios } = useCanopyStore();
+  const [hydrating, setHydrating] = useState(false);
+
+  useEffect(() => {
+    if (!id || session?.id === id) return;
+    setHydrating(true);
+    Promise.all([
+      getSession(id),
+      getSignals(id),
+      getScenarios(id),
+    ])
+      .then(([sess, sigs, scens]) => {
+        setSession(sess);
+        setSignals(sigs);
+        setScenarios(scens);
+      })
+      .catch((err) => console.error('Session hydration failed:', err))
+      .finally(() => setHydrating(false));
+  }, [id]);
+
+  if (hydrating) {
+    return (
+      <div
+        className="flex items-center justify-center min-h-screen"
+        style={{ background: 'var(--bg-primary)' }}
+      >
+        <p style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
+          Loading session…
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--bg-primary)' }}>
       <SessionSidebar />

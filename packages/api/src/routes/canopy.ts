@@ -26,7 +26,6 @@ async function callClaude(prompt: string): Promise<string> {
 }
 
 function extractJSON(raw: string): unknown {
-  // Strip markdown code fences if present
   const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   return JSON.parse(stripped);
 }
@@ -68,6 +67,47 @@ function parseForecast(row: Record<string, unknown>) {
     harvest_tree_seeds: safeJSON(row.harvest_tree_seeds as string, []),
     early_indicators: safeJSON(row.early_indicators as string, []),
   };
+}
+
+function parseRevision(row: Record<string, unknown>) {
+  return {
+    ...row,
+    snapshot: safeJSON(row.snapshot as string, null),
+  };
+}
+
+// ─── REVISION LOGGING ────────────────────────────────────────────────────────
+
+function logRevision(params: {
+  session_id: string;
+  user_id: string;
+  entity_type: string;
+  entity_id: string;
+  revision_type: string;
+  trigger_signal?: string;
+  rationale?: string;
+  snapshot?: unknown;
+}) {
+  try {
+    db.prepare(`
+      INSERT INTO canopy_revisions
+        (id, session_id, user_id, entity_type, entity_id, revision_type, trigger_signal, rationale, snapshot)
+      VALUES
+        (@id, @session_id, @user_id, @entity_type, @entity_id, @revision_type, @trigger_signal, @rationale, @snapshot)
+    `).run({
+      id: uuidv4(),
+      session_id: params.session_id,
+      user_id: params.user_id,
+      entity_type: params.entity_type,
+      entity_id: params.entity_id,
+      revision_type: params.revision_type,
+      trigger_signal: params.trigger_signal ?? null,
+      rationale: params.rationale ?? null,
+      snapshot: params.snapshot ? JSON.stringify(params.snapshot) : null,
+    });
+  } catch (err) {
+    console.warn('logRevision failed (non-fatal):', err);
+  }
 }
 
 // ─── FALLBACK MOCKS (used when API key absent or Claude call fails) ──────────────────
@@ -309,7 +349,6 @@ Return ONLY this exact JSON:
     harvest_tree_seeds: Array<{ layer: string; text: string; linked_milestone_id: string }>;
   };
 
-  // Replace sequential IDs with real UUIDs
   const idMap: Record<string, string> = {};
   for (const m of parsed.milestones) {
     idMap[m.id] = uuidv4();
@@ -427,6 +466,7 @@ canopyRouter.post('/canopy/session/create', authenticate, (req: AuthRequest, res
     share_token: shareToken,
   });
   const row = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown>;
+  logRevision({ session_id: id, user_id: userId, entity_type: 'session', entity_id: id, revision_type: 'session_created' });
   res.status(201).json({ data: parseSession(row) });
 });
 
@@ -458,6 +498,11 @@ canopyRouter.put('/canopy/session/:id', authenticate, (req: AuthRequest, res: Re
   }
   db.prepare(`UPDATE canopy_sessions SET ${setClauses.join(', ')} WHERE id = @id`).run(updates);
   const updated = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown>;
+  logRevision({
+    session_id: id, user_id: req.userId!, entity_type: 'session', entity_id: id,
+    revision_type: 'framing_edit',
+    snapshot: { changed_fields: Object.keys(req.body).filter((k) => fields.includes(k)) },
+  });
   res.json({ data: parseSession(updated) });
 });
 
@@ -499,6 +544,10 @@ canopyRouter.post('/canopy/session/:id/signals', authenticate, (req: AuthRequest
     canvas_y: canvas_y ?? Math.random() * 500,
   });
   const row = db.prepare('SELECT * FROM canopy_signals WHERE id = @id').get({ id: signalId }) as Record<string, unknown>;
+  logRevision({
+    session_id: sessionId, user_id: req.userId!, entity_type: 'signal', entity_id: signalId,
+    revision_type: 'signal_added', trigger_signal: text as string,
+  });
   res.status(201).json({ data: parseSignal(row) });
 });
 
@@ -520,6 +569,11 @@ canopyRouter.put('/canopy/signal/:id/classify', authenticate, (req: AuthRequest,
     db.prepare(`UPDATE canopy_signals SET ${setClauses.join(', ')} WHERE id = @id`).run(updates);
   }
   const row = db.prepare('SELECT * FROM canopy_signals WHERE id = @id').get({ id }) as Record<string, unknown>;
+  logRevision({
+    session_id: row.session_id as string, user_id: req.userId!, entity_type: 'signal', entity_id: id,
+    revision_type: 'signal_classified',
+    snapshot: { logic_type, strength, domain, cw_class },
+  });
   res.json({ data: parseSignal(row) });
 });
 
@@ -540,6 +594,11 @@ canopyRouter.post('/canopy/session/:id/triangle', authenticate, (req: AuthReques
     seed: JSON.stringify({ futures_triangle: { push, weight, pull, tensions } }),
     now: new Date().toISOString(),
   });
+  logRevision({
+    session_id: id, user_id: req.userId!, entity_type: 'session', entity_id: id,
+    revision_type: 'triangle_updated',
+    snapshot: { push, weight, pull, tension_count: Array.isArray(tensions) ? tensions.length : 0 },
+  });
   res.json({ data: { session_id: id, futures_triangle: { push, weight, pull, tensions } } });
 });
 
@@ -550,6 +609,11 @@ canopyRouter.post('/canopy/session/:id/cla', authenticate, (req: AuthRequest, re
     id,
     cla: JSON.stringify({ litany, systemic, worldview, metaphor, centre_attributions }),
     now: new Date().toISOString(),
+  });
+  logRevision({
+    session_id: id, user_id: req.userId!, entity_type: 'session', entity_id: id,
+    revision_type: 'cla_updated',
+    snapshot: { levels_filled: [litany, systemic, worldview, metaphor].filter(Boolean).length },
   });
   res.json({ data: { session_id: id, cla: { litany, systemic, worldview, metaphor, centre_attributions } } });
 });
@@ -605,6 +669,16 @@ canopyRouter.post('/canopy/scenario/:id/audit', authenticate, async (req: AuthRe
       cla: JSON.stringify(result.cla_incast),
     });
     const updated = db.prepare('SELECT * FROM canopy_scenarios WHERE id = @id').get({ id }) as Record<string, unknown>;
+    logRevision({
+      session_id: row.session_id as string, user_id: req.userId!, entity_type: 'scenario', entity_id: id,
+      revision_type: 'scenario_audited',
+      snapshot: {
+        consistency_pass: result.consistency_pass,
+        iia_pass: result.iia_pass,
+        arrow_failure_flag: result.arrow_failure_flag,
+        contradiction_count: result.internal_contradictions.length,
+      },
+    });
     res.json({ data: { scenario: parseScenario(updated), audit: result } });
   } catch (err) {
     console.error('scenario/audit error:', err);
@@ -689,6 +763,11 @@ canopyRouter.post('/canopy/session/:id/backcast', authenticate, async (req: Auth
       harvest_tree_seeds: JSON.stringify(backcast.harvest_tree_seeds),
     });
     const row = db.prepare('SELECT * FROM canopy_forecasts WHERE id = @id').get({ id: forecastId }) as Record<string, unknown>;
+    logRevision({
+      session_id: sessionId, user_id: req.userId!, entity_type: 'forecast', entity_id: forecastId,
+      revision_type: 'forecast_generated',
+      snapshot: { milestone_count: backcast.milestones.length, time_horizon_years },
+    });
     res.status(201).json({ data: parseForecast(row) });
   } catch (err) {
     console.error('canopy/backcast error:', err);
@@ -700,15 +779,43 @@ canopyRouter.get('/canopy/session/:id/indicators', authenticate, (req: AuthReque
   const { id } = req.params;
   const scenarios = db.prepare('SELECT * FROM canopy_scenarios WHERE session_id = @id').all({ id }) as
     Record<string, unknown>[];
-  const indicators = scenarios.map((s) => ({
-    scenario_id: s.id,
-    scenario_title: s.title,
-    indicators: [
-      { label: 'Early signal of preferred horizon emerging', status: 'quiet' },
-      { label: 'Structural conditions beginning to shift', status: 'quiet' },
-      { label: 'Counter-signals detected', status: 'quiet' },
-    ],
-  }));
+  const signals = db.prepare('SELECT domain, strength FROM canopy_signals WHERE session_id = @id').all({ id }) as
+    Array<{ domain: string; strength: string }>;
+  const domainCounts: Record<string, number> = {};
+  const wildcardDomains = new Set<string>();
+  for (const sig of signals) {
+    if (sig.domain) {
+      domainCounts[sig.domain] = (domainCounts[sig.domain] ?? 0) + 1;
+      if (sig.strength === 'wildcard') wildcardDomains.add(sig.domain);
+    }
+  }
+  const indicators = scenarios.map((s) => {
+    const claIncast = safeJSON(s.cla_incast as string, null) as Record<string, string> | null;
+    return {
+      scenario_id: s.id,
+      scenario_title: s.title,
+      indicators: [
+        {
+          label: 'Early signal of preferred horizon emerging',
+          status: (domainCounts['Society'] ?? 0) + (domainCounts['Culture'] ?? 0) >= 3 ? 'firing'
+            : (domainCounts['Society'] ?? 0) + (domainCounts['Culture'] ?? 0) >= 1 ? 'stirring' : 'quiet',
+        },
+        {
+          label: 'Structural conditions beginning to shift',
+          status: (domainCounts['Economy'] ?? 0) + (domainCounts['Governance'] ?? 0) >= 2 ? 'firing'
+            : (domainCounts['Economy'] ?? 0) + (domainCounts['Governance'] ?? 0) >= 1 ? 'stirring' : 'quiet',
+        },
+        {
+          label: 'Counter-signals detected',
+          status: wildcardDomains.size >= 2 ? 'contradicted' : wildcardDomains.size >= 1 ? 'stirring' : 'quiet',
+        },
+        ...(claIncast ? [{
+          label: `Metaphor layer: ${(claIncast.metaphor ?? '').slice(0, 60)}`,
+          status: s.consistency_certified ? 'firing' : 'quiet',
+        }] : []),
+      ],
+    };
+  });
   res.json({ data: indicators });
 });
 
@@ -719,13 +826,28 @@ canopyRouter.post('/canopy/session/:id/drift', authenticate, (req: AuthRequest, 
   if (!drift_logic || !revision_type) {
     res.status(400).json({ error: 'drift_logic and revision_type are required' }); return;
   }
+  const loggedAt = new Date().toISOString();
+  logRevision({
+    session_id: id,
+    user_id: req.userId!,
+    entity_type: 'session',
+    entity_id: id,
+    revision_type: 'drift_logged',
+    trigger_signal: typeof new_signals === 'string' ? new_signals : undefined,
+    rationale: drift_description as string | undefined,
+    snapshot: { drift_logic, revision_type, monitor_focus, new_signals },
+  });
   res.status(201).json({
-    data: { session_id: id, logged_at: new Date().toISOString(), new_signals, drift_description, drift_logic, revision_type, monitor_focus },
+    data: { session_id: id, logged_at: loggedAt, new_signals, drift_description, drift_logic, revision_type, monitor_focus },
   });
 });
 
 canopyRouter.get('/canopy/session/:id/revisions', authenticate, (req: AuthRequest, res: Response): void => {
-  res.json({ data: [] });
+  const { id } = req.params;
+  const rows = db.prepare(
+    'SELECT * FROM canopy_revisions WHERE session_id = @id ORDER BY created_at DESC'
+  ).all({ id }) as Record<string, unknown>[];
+  res.json({ data: rows.map(parseRevision) });
 });
 
 canopyRouter.post('/canopy/session/:id/pwtc', authenticate, (req: AuthRequest, res: Response): void => {
