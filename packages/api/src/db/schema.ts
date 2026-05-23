@@ -120,4 +120,87 @@ CREATE TABLE IF NOT EXISTS train_station_resources (
   is_locked INTEGER DEFAULT 0,
   FOREIGN KEY (territory_id) REFERENCES territories(id)
 );
+
+CREATE TABLE IF NOT EXISTS canopy_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  title TEXT,
+  foresight_question TEXT,
+  audit_result_seed TEXT,
+  brick_seed TEXT,
+  centre_description TEXT,
+  status TEXT DEFAULT 'active',
+  visibility TEXT DEFAULT 'private',
+  share_token TEXT UNIQUE,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS canopy_signals (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  source TEXT,
+  domain TEXT,
+  logic_type TEXT,
+  strength TEXT,
+  cw_class TEXT,
+  classifier_rationale TEXT,
+  linked_bolts TEXT DEFAULT '[]',
+  futures_cone_layer TEXT,
+  canvas_x REAL DEFAULT 0,
+  canvas_y REAL DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS canopy_horizons (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  author_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  cone_layer TEXT,
+  cw_class TEXT,
+  centre TEXT,
+  plausibility_score REAL DEFAULT 0.5,
+  desirability_score REAL DEFAULT 0.5,
+  linked_signals TEXT DEFAULT '[]',
+  linked_bricks TEXT DEFAULT '[]',
+  futures_triangle TEXT,
+  pwtc_submitted INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS canopy_scenarios (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  horizon_id TEXT,
+  title TEXT NOT NULL,
+  narrative TEXT,
+  critical_uncertainties TEXT DEFAULT '[]',
+  consistency_certified INTEGER DEFAULT 0,
+  iia_pass INTEGER DEFAULT 0,
+  arrow_failure_flag INTEGER DEFAULT 0,
+  cw_map TEXT,
+  cla_incast TEXT,
+  relaxed_arrow_condition TEXT,
+  relaxation_rationale TEXT,
+  audit_stamp_id TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS canopy_forecasts (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  scenario_id TEXT,
+  preferred_horizon_id TEXT,
+  time_horizon_years INTEGER,
+  milestones TEXT DEFAULT '[]',
+  decision_gates TEXT DEFAULT '[]',
+  earliest_decisions TEXT DEFAULT '[]',
+  harvest_tree_seeds TEXT DEFAULT '[]',
+  early_indicators TEXT DEFAULT '[]',
+  created_at TEXT DEFAULT (datetime('now'))
+);
 `;
