@@ -13,6 +13,7 @@
     "dev:walditorium": "npm run dev -w apps/walditorium",
     "dev:harvest-trees": "npm run dev -w apps/harvest-trees",
     "dev:community": "npm run dev -w apps/community",
+    "dev:canopy": "npm run dev -w apps/canopy",
     "lint": "npm run lint --workspaces --if-present"
   },
   "devDependencies": {
