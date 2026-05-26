@@ -11,6 +11,7 @@ import {
   extractBOLTs,
   extractNUTs,
   identifyBRICKs,
+  runAuditPipeline,
   BOLT,
   NUT,
   BRICK,
@@ -344,12 +345,13 @@ treeRouter.post('/tree/:id/audit', optionalAuth, (req: AuthRequest, res: Respons
     const bolts: BOLT[] = extractBOLTs(inputContent);
     const nuts: NUT[] = extractNUTs(bolts, inputContent);
     const bricks: BRICK[] = identifyBRICKs(bolts, nuts);
+    const auditResult = runAuditPipeline(bolts, nuts, bricks);
 
     db.prepare(`
       INSERT INTO audit_sessions
-        (id, user_id, input_type, input_content, bolts, nuts, bricks, visibility)
+        (id, user_id, input_type, input_content, bolts, nuts, bricks, audit_result, visibility)
       VALUES
-        (@id, @user_id, 'text', @input_content, @bolts, @nuts, @bricks, 'private')
+        (@id, @user_id, 'text', @input_content, @bolts, @nuts, @bricks, @audit_result, 'private')
     `).run({
       id: sessionId,
       user_id: userId,
@@ -357,6 +359,7 @@ treeRouter.post('/tree/:id/audit', optionalAuth, (req: AuthRequest, res: Respons
       bolts: JSON.stringify(bolts),
       nuts: JSON.stringify(nuts),
       bricks: JSON.stringify(bricks),
+      audit_result: JSON.stringify(auditResult),
     });
 
     // Link the audit stamp to the tree

@@ -17,7 +17,7 @@ export function CardDeckPage() {
   }, [id]);
 
   const handleComplete = async (actionId: string) => {
-    await completeAction(actionId);
+    completeAction(actionId).catch((err) => console.warn('action sync failed:', err));
     setShowToast(true);
     setTimeout(() => setShowToast(false), 2000);
   };

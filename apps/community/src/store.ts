@@ -80,13 +80,11 @@ export const useStore = create<CommunityStore>((set, get) => ({
   },
 
   completeAction: async (actionId) => {
-    try {
-      await communityApi.completeAction(actionId);
-    } catch { /* no-op */ }
     set((s) => ({
       completedActions: [...s.completedActions, actionId],
       journeyStage: Math.max(s.journeyStage, 2),
     }));
+    await communityApi.completeAction(actionId);
   },
 
   loadResources: async (territoryId) => {
