@@ -4,7 +4,7 @@ import { MOCK_FUTURES, MOCK_TERRITORIES } from '../mockData';
 import type { PossibleWorldsFuture } from '../types';
 
 export function PWTCPage() {
-  const { futures, loadFutures, submitFuture } = useStore();
+  const { futures, loadFutures, submitFuture, territories } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', territory_id: '', what_i_risk: '' });
 
@@ -103,7 +103,7 @@ export function PWTCPage() {
                 style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '4px', fontFamily: '"DM Mono", monospace', fontSize: '13px' }}
               >
                 <option value="">Select territory...</option>
-                {MOCK_TERRITORIES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {territories.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
               <textarea
                 placeholder="What do you risk by naming this future?"

@@ -304,11 +304,12 @@ communityRouter.get('/station/:territory_id', optionalAuth, (req: AuthRequest, r
 
 // POST /api/pwtc/future
 communityRouter.post('/pwtc/future', optionalAuth, (req: AuthRequest, res: Response): void => {
-  const { title, description, territory_id, options } = req.body as {
+  const { title, description, territory_id, options, stakes } = req.body as {
     title?: string;
     description?: string;
     territory_id?: string;
     options?: { condition: string; action_if_triggered: string }[];
+    stakes?: { user_id: string; what_they_risk: string; magnitude: number }[];
   };
 
   if (!title) {
@@ -324,7 +325,7 @@ communityRouter.post('/pwtc/future', optionalAuth, (req: AuthRequest, res: Respo
       INSERT INTO possible_worlds_futures
         (id, author_id, title, description, territory_id, options, stakes, shares)
       VALUES
-        (@id, @author_id, @title, @description, @territory_id, @options, '[]', '[]')
+        (@id, @author_id, @title, @description, @territory_id, @options, @stakes, '[]')
     `).run({
       id,
       author_id,
@@ -332,6 +333,7 @@ communityRouter.post('/pwtc/future', optionalAuth, (req: AuthRequest, res: Respo
       description: description ?? null,
       territory_id: territory_id ?? null,
       options: JSON.stringify(options ?? []),
+      stakes: JSON.stringify(stakes ?? []),
     });
 
     const row = db.prepare('SELECT * FROM possible_worlds_futures WHERE id = @id').get({ id }) as Record<string, unknown>;

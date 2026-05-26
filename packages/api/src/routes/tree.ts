@@ -276,7 +276,9 @@ treeRouter.put('/tree/:id/layer/:name', optionalAuth, (req: AuthRequest, res: Re
     return;
   }
 
-  const layerData = req.body;
+  // Accept both raw array and {nodes: [...]} shapes from different callers
+  const body = req.body;
+  const layerData = Array.isArray(body) ? body : (body?.nodes ?? body);
 
   try {
     db.prepare(`UPDATE harvest_trees SET ${name} = @data, updated_at = @now WHERE id = @id`).run({
@@ -437,6 +439,20 @@ treeRouter.get('/user/:id/trees', optionalAuth, (req: AuthRequest, res: Response
 });
 
 // POST /api/tree/:id/share
+// PATCH /api/tree/:id/title — rename a tree
+treeRouter.patch('/tree/:id/title', optionalAuth, (req: AuthRequest, res: Response): void => {
+  const { id } = req.params;
+  const { title } = req.body as { title?: string };
+  if (!title?.trim()) { res.status(400).json({ error: 'title is required' }); return; }
+  const row = db.prepare('SELECT id FROM harvest_trees WHERE id = @id').get({ id });
+  if (!row) { res.status(404).json({ error: 'Harvest tree not found' }); return; }
+  db.prepare('UPDATE harvest_trees SET title = @title, updated_at = @now WHERE id = @id').run({
+    id, title: title.trim(), now: new Date().toISOString(),
+  });
+  const updated = db.prepare('SELECT * FROM harvest_trees WHERE id = @id').get({ id }) as Record<string, unknown>;
+  res.json({ data: parseTree(updated) });
+});
+
 treeRouter.post('/tree/:id/share', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
 

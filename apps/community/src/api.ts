@@ -1,6 +1,11 @@
 import axios from 'axios';
 
 const api = axios.create({ baseURL: '/api' });
+api.interceptors.request.use((c) => {
+  const token = localStorage.getItem('wald_token');
+  if (token) Object.assign(c.headers, { Authorization: `Bearer ${token}` });
+  return c;
+});
 
 export const communityApi = {
   getTerritories: () => api.get('/territories'),

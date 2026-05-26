@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS harvest_trees (
   ethical_constraints TEXT DEFAULT '{}',
   audit_stamp_id TEXT,
   last_audited_at TEXT,
+  visibility TEXT DEFAULT 'private',
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

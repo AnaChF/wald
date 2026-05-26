@@ -1,9 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useHarvestStore } from '../store';
+import { treeApi } from '../api';
 import LayerEditor from '../components/LayerEditor';
 import TreeCanvas from '../components/TreeCanvas';
 import type { LayerName, EthicalConstraints } from '../types';
+
+const WALDITORIUM_URL = import.meta.env.VITE_WALDITORIUM_URL ?? 'http://localhost:5173';
 
 const TABS: { id: LayerName | 'ethics'; label: string }[] = [
   { id: 'roots',    label: 'Roots' },
@@ -53,6 +56,7 @@ export default function TreeEditorPage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState('');
   const [highlightLayer, setHighlightLayer] = useState<LayerName | undefined>(undefined);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   // Handle /tree/new?domain=
   useEffect(() => {
@@ -114,9 +118,23 @@ export default function TreeEditorPage() {
 
   const handleTitleSave = () => {
     if (!currentTree || !titleValue.trim()) return;
-    const updated = { ...currentTree, title: titleValue.trim() };
+    const trimmed = titleValue.trim();
+    const updated = { ...currentTree, title: trimmed };
     useHarvestStore.getState().setCurrentTree(updated);
     setEditingTitle(false);
+    treeApi.updateTitle(currentTree.id, trimmed).catch(() => {/* non-fatal */});
+  };
+
+  const handleAudit = async () => {
+    if (!currentTree || auditLoading) return;
+    setAuditLoading(true);
+    try {
+      const res = await treeApi.auditTree(currentTree.id);
+      const { session_id } = res.data.data;
+      window.location.href = `${WALDITORIUM_URL}/audit/${session_id}/anatomy`;
+    } catch {
+      setAuditLoading(false);
+    }
   };
 
   if (loading && !currentTree) {
@@ -171,10 +189,11 @@ export default function TreeEditorPage() {
 
         <div className="flex items-center gap-3 flex-shrink-0">
           <button
-            className="font-spectral text-xs border border-ht-brown/30 text-ht-brown/70 px-3 py-1.5 rounded hover:border-ht-ochre hover:text-ht-ochre transition-all duration-300"
-            onClick={() => {/* Walditorium audit stub */}}
+            className="font-spectral text-xs border border-ht-brown/30 text-ht-brown/70 px-3 py-1.5 rounded hover:border-ht-ochre hover:text-ht-ochre transition-all duration-300 disabled:opacity-40"
+            onClick={handleAudit}
+            disabled={auditLoading}
           >
-            Audit with Walditorium
+            {auditLoading ? 'Preparing audit…' : 'Audit with Walditorium'}
           </button>
           <Link
             to={`/tree/${currentTree.id}/report`}

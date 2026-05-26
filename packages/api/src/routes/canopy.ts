@@ -415,31 +415,6 @@ canopyRouter.post('/canopy/scenarios/audit', optionalAuth, async (req: AuthReque
   }
 });
 
-canopyRouter.post('/canopy/backcast', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  const { preferred_horizon_id, time_horizon_years } = req.body as {
-    preferred_horizon_id: string; current_beliefs: unknown; time_horizon_years: number;
-  };
-  if (!preferred_horizon_id || !time_horizon_years) {
-    res.status(400).json({ error: 'preferred_horizon_id and time_horizon_years are required' }); return;
-  }
-  try {
-    let result;
-    if (claude) {
-      try {
-        result = await backcastWithClaude(preferred_horizon_id, time_horizon_years);
-      } catch (aiErr) {
-        console.warn('Claude backcast failed, using mock:', aiErr);
-        result = mockBackcast(time_horizon_years);
-      }
-    } else {
-      result = mockBackcast(time_horizon_years);
-    }
-    res.json({ data: result });
-  } catch (err) {
-    console.error('canopy/backcast error:', err);
-    res.status(500).json({ error: 'Backcasting failed' });
-  }
-});
 
 // ─── SESSION ROUTES ───────────────────────────────────────────────────────────
 
@@ -886,19 +861,36 @@ canopyRouter.get('/canopy/session/:id/revisions', authenticate, (req: AuthReques
 
 canopyRouter.post('/canopy/session/:id/pwtc', authenticate, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
-  const owned = db.prepare('SELECT id FROM canopy_sessions WHERE id = @id AND user_id = @user_id').get({ id, user_id: req.userId });
+  const owned = db.prepare('SELECT id, user_id, foresight_question FROM canopy_sessions WHERE id = @id AND user_id = @user_id').get({
+    id, user_id: req.userId,
+  }) as { id: string; user_id: string; foresight_question: string } | undefined;
   if (!owned) { res.status(403).json({ error: 'Access denied' }); return; }
   const { scenario_id } = req.body as { scenario_id: string };
   if (!scenario_id) { res.status(400).json({ error: 'scenario_id is required' }); return; }
+  const scenario = db.prepare('SELECT title, narrative FROM canopy_scenarios WHERE id = @id AND session_id = @session_id').get({
+    id: scenario_id, session_id: id,
+  }) as { title: string; narrative: string | null } | undefined;
+  if (!scenario) { res.status(400).json({ error: 'Scenario not found in this session' }); return; }
   db.prepare(`UPDATE canopy_sessions SET visibility = 'submitted', updated_at = @now WHERE id = @id`).run({
     id, now: new Date().toISOString(),
+  });
+  // Cross-app: publish to Possible Worlds Trading Centre
+  const futureId = uuidv4();
+  db.prepare(`
+    INSERT OR IGNORE INTO possible_worlds_futures (id, author_id, title, description, stakes, shares, options)
+    VALUES (@id, @author_id, @title, @description, '[]', '[]', '[]')
+  `).run({
+    id: futureId,
+    author_id: owned.user_id,
+    title: scenario.title,
+    description: scenario.narrative ?? owned.foresight_question ?? null,
   });
   logRevision({
     session_id: id, user_id: req.userId!, entity_type: 'session', entity_id: id,
     revision_type: 'pwtc_submitted',
-    snapshot: { scenario_id },
+    snapshot: { scenario_id, future_id: futureId },
   });
-  res.json({ data: { submitted: true, session_id: id, scenario_id } });
+  res.json({ data: { submitted: true, session_id: id, scenario_id, future_id: futureId } });
 });
 
 canopyRouter.post('/canopy/session/:id/harvest', authenticate, (req: AuthRequest, res: Response): void => {
