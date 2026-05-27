@@ -4,11 +4,14 @@ import { MOCK_FUTURES, MOCK_TERRITORIES } from '../mockData';
 import type { PossibleWorldsFuture } from '../types';
 
 export function PWTCPage() {
-  const { futures, loadFutures, submitFuture, territories } = useStore();
+  const { futures, loadFutures, submitFuture, territories, initStore } = useStore();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', territory_id: '', what_i_risk: '' });
 
-  useEffect(() => { loadFutures(); }, []);
+  useEffect(() => {
+    loadFutures();
+    if (territories.length === 0) initStore();
+  }, []);
 
   const displayed = futures.length > 0 ? futures : MOCK_FUTURES;
   const openCount = displayed.filter(f => f.status === 'open').length;

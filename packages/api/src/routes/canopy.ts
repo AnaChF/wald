@@ -38,6 +38,23 @@ function safeJSON<T>(v: string | null | undefined, fallback: T): T {
   try { return JSON.parse(v) as T; } catch { return fallback; }
 }
 
+/** Verifies the caller can read this session (owner, shared-visibility, or valid share_token).
+ *  Writes 404/403 to `res` and returns null on failure. */
+function resolveSessionAccess(
+  id: string, req: AuthRequest, shareToken: string | undefined, res: Response,
+): Record<string, unknown> | null {
+  const session = db.prepare(
+    'SELECT user_id, visibility, share_token FROM canopy_sessions WHERE id = @id'
+  ).get({ id }) as Record<string, unknown> | undefined;
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return null; }
+  if (
+    session.visibility !== 'shared' &&
+    session.user_id !== req.userId &&
+    !(shareToken && shareToken === session.share_token)
+  ) { res.status(403).json({ error: 'Access denied' }); return null; }
+  return session;
+}
+
 function parseSession(row: Record<string, unknown>) {
   return {
     ...row,
@@ -558,11 +575,7 @@ canopyRouter.put('/canopy/signal/:id/classify', authenticate, (req: AuthRequest,
 canopyRouter.get('/canopy/session/:id/signals', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const shareToken = req.query.share_token as string | undefined;
-  const session = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown> | undefined;
-  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
-  if (session.visibility !== 'shared' && session.user_id !== req.userId && !(shareToken && shareToken === session.share_token)) {
-    res.status(403).json({ error: 'Access denied' }); return;
-  }
+  if (!resolveSessionAccess(id, req, shareToken, res)) return;
   const rows = db.prepare('SELECT * FROM canopy_signals WHERE session_id = @id ORDER BY created_at ASC').all({ id }) as
     Record<string, unknown>[];
   res.json({ data: rows.map(parseSignal) });
@@ -694,11 +707,7 @@ canopyRouter.get('/canopy/scenario/:id/certification', optionalAuth, (req: AuthR
 canopyRouter.get('/canopy/session/:id/scenarios', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const shareToken = req.query.share_token as string | undefined;
-  const session = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown> | undefined;
-  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
-  if (session.visibility !== 'shared' && session.user_id !== req.userId && !(shareToken && shareToken === session.share_token)) {
-    res.status(403).json({ error: 'Access denied' }); return;
-  }
+  if (!resolveSessionAccess(id, req, shareToken, res)) return;
   const rows = db.prepare('SELECT * FROM canopy_scenarios WHERE session_id = @id ORDER BY created_at ASC').all({ id }) as
     Record<string, unknown>[];
   res.json({ data: rows.map(parseScenario) });
@@ -772,11 +781,7 @@ canopyRouter.post('/canopy/session/:id/backcast', authenticate, async (req: Auth
 canopyRouter.get('/canopy/session/:id/forecast', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const shareToken = req.query.share_token as string | undefined;
-  const session = db.prepare('SELECT * FROM canopy_sessions WHERE id = @id').get({ id }) as Record<string, unknown> | undefined;
-  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
-  if (session.visibility !== 'shared' && session.user_id !== req.userId && !(shareToken && shareToken === session.share_token)) {
-    res.status(403).json({ error: 'Access denied' }); return;
-  }
+  if (!resolveSessionAccess(id, req, shareToken, res)) return;
   const row = db.prepare(
     'SELECT * FROM canopy_forecasts WHERE session_id = @id ORDER BY created_at DESC LIMIT 1'
   ).get({ id }) as Record<string, unknown> | undefined;
@@ -867,10 +872,15 @@ canopyRouter.post('/canopy/session/:id/pwtc', authenticate, (req: AuthRequest, r
   if (!owned) { res.status(403).json({ error: 'Access denied' }); return; }
   const { scenario_id } = req.body as { scenario_id: string };
   if (!scenario_id) { res.status(400).json({ error: 'scenario_id is required' }); return; }
-  const scenario = db.prepare('SELECT title, narrative FROM canopy_scenarios WHERE id = @id AND session_id = @session_id').get({
-    id: scenario_id, session_id: id,
-  }) as { title: string; narrative: string | null } | undefined;
+  const scenario = db.prepare(
+    'SELECT title, narrative, consistency_certified FROM canopy_scenarios WHERE id = @id AND session_id = @session_id'
+  ).get({ id: scenario_id, session_id: id }) as {
+    title: string; narrative: string | null; consistency_certified: number | null;
+  } | undefined;
   if (!scenario) { res.status(400).json({ error: 'Scenario not found in this session' }); return; }
+  if (!scenario.consistency_certified) {
+    res.status(422).json({ error: 'Only a consistency-certified scenario may be submitted to PWTC' }); return;
+  }
   db.prepare(`UPDATE canopy_sessions SET visibility = 'submitted', updated_at = @now WHERE id = @id`).run({
     id, now: new Date().toISOString(),
   });

@@ -86,6 +86,7 @@ export function ForecastPage() {
   const [pwtcConfirmOpen, setPwtcConfirmOpen] = useState(false);
   const [pwtcSubmitting, setPwtcSubmitting] = useState(false);
   const [pwtcSubmitted, setPwtcSubmitted] = useState(false);
+  const [pwtcFutureId, setPwtcFutureId] = useState<string | null>(null);
 
   useEffect(() => {
     setStep(6);
@@ -162,8 +163,9 @@ export function ForecastPage() {
     if (!sessionId || !pwtcScenarioId) return;
     setPwtcSubmitting(true);
     try {
-      await submitPWTC(sessionId, pwtcScenarioId);
+      const result = await submitPWTC(sessionId, pwtcScenarioId);
       setPwtcSubmitted(true);
+      if (result?.future_id) setPwtcFutureId(result.future_id as string);
       setPwtcConfirmOpen(false);
       getRevisions(sessionId).then(setRevisions).catch(() => {});
     } catch {}
@@ -550,11 +552,24 @@ export function ForecastPage() {
             Certify at least one scenario to enable PWTC submission.
           </p>
         ) : pwtcSubmitted ? (
-          <div className="flex items-center gap-3">
-            <span style={{ color: 'var(--positive)', fontSize: 20 }}>✓</span>
-            <p className="font-cormorant font-light text-lg" style={{ color: 'var(--positive)' }}>
-              Session submitted to the Possible Worlds Trading Company.
-            </p>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-3">
+              <span style={{ color: 'var(--positive)', fontSize: 20 }}>✓</span>
+              <p className="font-cormorant font-light text-lg" style={{ color: 'var(--positive)' }}>
+                Session submitted to the Possible Worlds Trading Company.
+              </p>
+            </div>
+            {pwtcFutureId && (
+              <a
+                href={`http://localhost:5175/pwtc`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono-dm text-xs underline"
+                style={{ color: 'rgba(245,240,232,0.5)', fontSize: 11 }}
+              >
+                View in Community PWTC → future #{pwtcFutureId.slice(0, 8)}
+              </a>
+            )}
           </div>
         ) : (
           <div className="flex items-end gap-4">

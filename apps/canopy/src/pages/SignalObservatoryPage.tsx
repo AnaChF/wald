@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { useCanopyStore } from '../store';
 import { addSignal, classifySignal, updateSignalClassification, getSignals } from '../api';
 import { SignalCanvas } from '../components/SignalCanvas';
@@ -17,6 +17,7 @@ const CW_COLOURS: Record<string, string> = { W: '#2D6048', C: '#C17E3A', mixed: 
 
 export function SignalObservatoryPage() {
   const { id: sessionId } = useParams<{ id: string }>();
+  const location = useLocation();
   const { signals, session, addSignal: storeAddSignal, updateSignal, setSignals, setStep } = useCanopyStore();
 
   const [input, setInput] = useState('');
@@ -29,9 +30,10 @@ export function SignalObservatoryPage() {
   useEffect(() => {
     setStep(2);
     if (sessionId) {
-      getSignals(sessionId).then(setSignals).catch(() => {});
+      const shareToken = new URLSearchParams(location.search).get('share_token') ?? undefined;
+      getSignals(sessionId, shareToken).then(setSignals).catch(() => {});
     }
-  }, [sessionId]);
+  }, [sessionId, location.search]);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {

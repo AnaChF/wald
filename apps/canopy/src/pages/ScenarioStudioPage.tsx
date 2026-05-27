@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { useCanopyStore } from '../store';
 import { createScenario, auditScenario, runScenarioAudit, getScenarios } from '../api';
 import { ScenarioCertificationMark } from '../components/ScenarioCertificationMark';
@@ -20,6 +20,7 @@ function buildNarrative(sections: Record<string, string>): string {
 
 export function ScenarioStudioPage() {
   const { id: sessionId } = useParams<{ id: string }>();
+  const location = useLocation();
   const { session, scenarios, addScenario, updateScenario, setScenarios, setStep } = useCanopyStore();
 
   const [title, setTitle] = useState('');
@@ -34,8 +35,11 @@ export function ScenarioStudioPage() {
 
   useEffect(() => {
     setStep(5);
-    if (sessionId) getScenarios(sessionId).then(setScenarios).catch(() => {});
-  }, [sessionId]);
+    if (sessionId) {
+      const shareToken = new URLSearchParams(location.search).get('share_token') ?? undefined;
+      getScenarios(sessionId, shareToken).then(setScenarios).catch(() => {});
+    }
+  }, [sessionId, location.search]);
 
   const handleNarrativeChange = useCallback(
     (key: string, value: string) => {
