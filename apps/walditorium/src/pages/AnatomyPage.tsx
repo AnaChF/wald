@@ -7,7 +7,7 @@ import type { BOLT } from '../types';
 export function AnatomyPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentSession, loadSession, runAudit, loading } = useAuditStore();
+  const { currentSession, loadSession, loading } = useAuditStore();
   const [expandedBolts, setExpandedBolts] = useState<Set<string>>(new Set());
   const [selectedBolt, setSelectedBolt] = useState<BOLT | null>(null);
 
@@ -17,9 +17,8 @@ export function AnatomyPage() {
     }
   }, [id, currentSession, loadSession]);
 
-  async function handleRunAudit() {
+  function handleRunAudit() {
     if (!id) return;
-    await runAudit(id);
     navigate(`/audit/${id}/running`);
   }
 

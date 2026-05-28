@@ -1,9 +1,7 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { WalditoriumStamp } from '../components/WalditoriumStamp';
-import { MOCK_SESSION } from '../mockData';
-
-// For the gallery we use a static list; in production this would come from the API
-const GALLERY_SESSIONS = [MOCK_SESSION];
+import { useAuditStore } from '../store';
 
 function getVerdictColor(verdict: string) {
   switch (verdict) {
@@ -17,6 +15,13 @@ function getVerdictColor(verdict: string) {
 
 export function StampsPage() {
   const navigate = useNavigate();
+  const { sessions, loadMyStamps } = useAuditStore();
+
+  useEffect(() => {
+    loadMyStamps();
+  }, [loadMyStamps]);
+
+  const stamped = sessions.filter((s) => s.audit_result != null);
 
   return (
     <div
@@ -57,7 +62,7 @@ export function StampsPage() {
               letterSpacing: '0.1em',
             }}
           >
-            {GALLERY_SESSIONS.length} AUDIT{GALLERY_SESSIONS.length !== 1 ? 'S' : ''} ON RECORD
+            {stamped.length} AUDIT{stamped.length !== 1 ? 'S' : ''} ON RECORD
           </div>
         </div>
         <button
@@ -87,10 +92,10 @@ export function StampsPage() {
           gap: '24px',
         }}
       >
-        {GALLERY_SESSIONS.map((session) => {
-          if (!session.audit_result) return null;
-          const result = session.audit_result;
+        {stamped.map((session) => {
+          const result = session.audit_result!;
           const verdictColor = getVerdictColor(result.verdict);
+          const inputContent = session.input?.content ?? '';
 
           return (
             <div
@@ -119,7 +124,6 @@ export function StampsPage() {
             >
               <WalditoriumStamp auditResult={result} size={200} animated={false} />
 
-              {/* Session info */}
               <div style={{ width: '100%', textAlign: 'center' }}>
                 <div
                   style={{
@@ -160,23 +164,25 @@ export function StampsPage() {
                     SCI {result.sci_score}
                   </span>
                 </div>
-                <div
-                  style={{
-                    fontFamily: '"Cormorant Garamond", serif',
-                    fontStyle: 'italic',
-                    fontSize: '0.85rem',
-                    color: 'rgba(245,240,232,0.45)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '260px',
-                    margin: '0 auto',
-                  }}
-                  title={session.input.content.slice(0, 80)}
-                >
-                  {session.input.content.slice(0, 60)}
-                  {session.input.content.length > 60 ? '…' : ''}
-                </div>
+                {inputContent && (
+                  <div
+                    style={{
+                      fontFamily: '"Cormorant Garamond", serif',
+                      fontStyle: 'italic',
+                      fontSize: '0.85rem',
+                      color: 'rgba(245,240,232,0.45)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '260px',
+                      margin: '0 auto',
+                    }}
+                    title={inputContent.slice(0, 80)}
+                  >
+                    {inputContent.slice(0, 60)}
+                    {inputContent.length > 60 ? '…' : ''}
+                  </div>
+                )}
                 <div
                   style={{
                     marginTop: '6px',
@@ -198,8 +204,7 @@ export function StampsPage() {
         })}
       </div>
 
-      {/* Empty state (if no sessions) */}
-      {GALLERY_SESSIONS.length === 0 && (
+      {stamped.length === 0 && (
         <div
           style={{
             textAlign: 'center',

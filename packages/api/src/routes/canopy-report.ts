@@ -63,8 +63,8 @@ canopyReportRouter.get('/canopy/session/:id/report', optionalAuth, (req: AuthReq
 
   const milestones = safeJSON<Array<Record<string, unknown>>>(forecast?.milestones as string, []);
   const seeds = safeJSON<Array<Record<string, unknown>>>(forecast?.harvest_tree_seeds as string, []);
-  const cla = safeJSON<Record<string, unknown>>(session.brick_seed as string, null);
-  const triangle = safeJSON<Record<string, unknown>>(session.audit_result_seed as string, null);
+  const cla = safeJSON<Record<string, unknown> | null>(session.brick_seed as string, null);
+  const triangle = safeJSON<Record<string, unknown> | null>(session.audit_result_seed as string, null);
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader(
@@ -197,7 +197,7 @@ canopyReportRouter.get('/canopy/session/:id/report', optionalAuth, (req: AuthReq
         doc.moveDown(0.5);
       }
 
-      const claIncast = safeJSON<Record<string, unknown>>(sc.cla_incast as string, null);
+      const claIncast = safeJSON<Record<string, unknown> | null>(sc.cla_incast as string, null);
       if (claIncast) {
         label(doc, 'CLA Incast');
         for (const [k, v] of Object.entries(claIncast)) {
@@ -209,7 +209,7 @@ canopyReportRouter.get('/canopy/session/:id/report', optionalAuth, (req: AuthReq
         doc.moveDown(0.5);
       }
 
-      const cwMap = safeJSON<Record<string, unknown>>(sc.cw_map as string, null);
+      const cwMap = safeJSON<Record<string, unknown> | null>(sc.cw_map as string, null);
       if (cwMap) {
         const wEls = (cwMap.w_elements as Array<Record<string, unknown>>) ?? [];
         const cEls = (cwMap.c_elements as Array<Record<string, unknown>>) ?? [];

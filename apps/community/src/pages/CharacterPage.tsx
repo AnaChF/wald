@@ -1,9 +1,14 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { TotemicCharacterSVG } from '../components/TotemicCharacterSVG';
 import { MOCK_CHARACTER } from '../mockData';
+import { useStore } from '../store';
 
 export function CharacterPage() {
-  const character = MOCK_CHARACTER;
+  const { totemicCharacter, initStore } = useStore();
+  useEffect(() => {
+    if (!totemicCharacter) initStore();
+  }, []);
+  const character = totemicCharacter ?? MOCK_CHARACTER;
   const [name, setName] = useState(character.name);
   const [editing, setEditing] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);

@@ -19,6 +19,11 @@ export const auditRouter = Router();
 function parseSession(row: Record<string, unknown>) {
   return {
     ...row,
+    input: {
+      type: row.input_type ?? 'text',
+      content: row.input_content ?? '',
+      ...(row.input_source_url ? { source_url: row.input_source_url } : {}),
+    },
     bolts: safeParseJSON(row.bolts as string, []),
     nuts: safeParseJSON(row.nuts as string, []),
     bricks: safeParseJSON(row.bricks as string, []),
@@ -191,33 +196,36 @@ auditRouter.post('/audit/:id/plan', optionalAuth, (req: AuthRequest, res: Respon
     return;
   }
 
+  type PlanItem = { id: string; text: string; failure_level: string; action: string };
+
   // Map failures to tree layers
-  const roots: string[] = [];
-  const trunk: string[] = [];
-  const branches: string[] = [];
-  const leaves: string[] = [];
-  const fruits: string[] = [];
+  const roots: PlanItem[] = [];
+  const trunk: PlanItem[] = [];
+  const branches: PlanItem[] = [];
+  const leaves: PlanItem[] = [];
+  const fruits: PlanItem[] = [];
 
   for (const failure of auditResult.failures) {
     const desc = failure.description;
-    switch (failure.level) {
+    const level = failure.level;
+    switch (level) {
       case 'CE':
       case 'CY':
-        roots.push(`Address failure: ${desc}`);
+        roots.push({ id: uuidv4(), text: `${level} failure: ${desc}`, failure_level: level, action: `Address failure: ${desc}` });
         break;
       case 'CS':
       case 'L':
-        trunk.push(`Strengthen: ${desc}`);
+        trunk.push({ id: uuidv4(), text: `${level} failure: ${desc}`, failure_level: level, action: `Strengthen: ${desc}` });
         break;
       case 'S':
       case 'CN':
-        branches.push(`Clarify: ${desc}`);
+        branches.push({ id: uuidv4(), text: `${level} failure: ${desc}`, failure_level: level, action: `Clarify: ${desc}` });
         break;
       case 'K':
-        leaves.push(`Build knowledge: ${desc}`);
+        leaves.push({ id: uuidv4(), text: `${level} failure: ${desc}`, failure_level: level, action: `Build knowledge: ${desc}` });
         break;
       case 'CR':
-        fruits.push(`Contextualise: ${desc}`);
+        fruits.push({ id: uuidv4(), text: `${level} failure: ${desc}`, failure_level: level, action: `Contextualise: ${desc}` });
         break;
     }
   }

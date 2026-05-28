@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useStore } from '../store';
 
 const TREES = [
   [0, 180, 80, 40, 160, 180],
@@ -14,6 +15,7 @@ const TREES = [
 
 export function WaldenWoodsPage() {
   const navigate = useNavigate();
+  const { setEntryText } = useStore();
   const [text, setText] = useState('');
   const [phase, setPhase] = useState(0);
 
@@ -91,7 +93,7 @@ export function WaldenWoodsPage() {
         pointerEvents: phase >= 3 && text.length >= 10 ? 'auto' : 'none',
       }}>
         <button
-          onClick={() => navigate('/territories')}
+          onClick={() => { setEntryText(text); navigate('/territories'); }}
           style={{
             background: 'transparent', border: '1px solid rgba(245,230,200,0.6)',
             color: '#f5e6c8', fontFamily: '"Cormorant Garamond", serif',

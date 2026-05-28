@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useStore } from '../store';
-import { MOCK_TERRITORIES, MOCK_RESOURCES } from '../mockData';
+import { MOCK_RESOURCES } from '../mockData';
 
 const TYPE_ICON: Record<string, string> = {
   pdf: '📄', audio: '🎧', video: '🎬', ebook: '📚', article: '📰',
@@ -11,13 +11,13 @@ type FilterType = 'all' | 'pdf' | 'audio' | 'video' | 'ebook' | 'article';
 
 export function TrainStationPage() {
   const { territory_id } = useParams<{ territory_id: string }>();
-  const { resources, loadResources, territories } = useStore();
+  const { resources, loadResources, territories, initStore } = useStore();
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
 
-  const allTerritories = [...territories, ...MOCK_TERRITORIES];
-  const territory = allTerritories.find(t => t.id === territory_id);
+  const territory = territories.find(t => t.id === territory_id);
 
   useEffect(() => {
+    if (territories.length === 0) initStore();
     if (territory_id) loadResources(territory_id);
   }, [territory_id]);
 
