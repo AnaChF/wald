@@ -15,6 +15,21 @@ import { optionalAuth, AuthRequest } from '../middleware/auth';
 
 export const auditRouter = Router();
 
+function checkAuditAccess(
+  row: Record<string, unknown>,
+  req: AuthRequest,
+  res: Response,
+  ownerOnly: boolean,
+): boolean {
+  const isOwner = row.user_id != null && row.user_id === req.userId;
+  const isPublic = row.visibility === 'public';
+  if (ownerOnly ? !isOwner : !isOwner && !isPublic) {
+    res.status(403).json({ error: 'Access denied' });
+    return false;
+  }
+  return true;
+}
+
 // Helper: parse all JSON fields on a raw audit session row
 function parseSession(row: Record<string, unknown>) {
   return {
@@ -105,10 +120,8 @@ auditRouter.get('/audit/:id', optionalAuth, (req: AuthRequest, res: Response): v
     | Record<string, unknown>
     | undefined;
 
-  if (!row) {
-    res.status(404).json({ error: 'Audit session not found' });
-    return;
-  }
+  if (!row) { res.status(404).json({ error: 'Audit session not found' }); return; }
+  if (!checkAuditAccess(row, req, res, false)) return;
 
   res.json({ data: parseSession(row) });
 });
@@ -121,10 +134,8 @@ auditRouter.post('/audit/:id/run', optionalAuth, (req: AuthRequest, res: Respons
     | Record<string, unknown>
     | undefined;
 
-  if (!row) {
-    res.status(404).json({ error: 'Audit session not found' });
-    return;
-  }
+  if (!row) { res.status(404).json({ error: 'Audit session not found' }); return; }
+  if (!checkAuditAccess(row, req, res, true)) return;
 
   try {
     const bolts: BOLT[] = safeParseJSON(row.bolts as string, []);
@@ -153,10 +164,8 @@ auditRouter.get('/audit/:id/stamp', optionalAuth, (req: AuthRequest, res: Respon
     | Record<string, unknown>
     | undefined;
 
-  if (!row) {
-    res.status(404).json({ error: 'Audit session not found' });
-    return;
-  }
+  if (!row) { res.status(404).json({ error: 'Audit session not found' }); return; }
+  if (!checkAuditAccess(row, req, res, false)) return;
 
   const auditResult = row.audit_result
     ? safeParseJSON<AuditResult | null>(row.audit_result as string, null)
@@ -182,10 +191,8 @@ auditRouter.post('/audit/:id/plan', optionalAuth, (req: AuthRequest, res: Respon
     | Record<string, unknown>
     | undefined;
 
-  if (!row) {
-    res.status(404).json({ error: 'Audit session not found' });
-    return;
-  }
+  if (!row) { res.status(404).json({ error: 'Audit session not found' }); return; }
+  if (!checkAuditAccess(row, req, res, true)) return;
 
   const auditResult = row.audit_result
     ? safeParseJSON<AuditResult | null>(row.audit_result as string, null)
@@ -248,9 +255,10 @@ auditRouter.post('/audit/:id/plan', optionalAuth, (req: AuthRequest, res: Respon
   });
 });
 
-// GET /api/user/:id/stamps — list user's audit sessions
+// GET /api/user/:id/stamps — list user's audit sessions (owner only)
 auditRouter.get('/user/:id/stamps', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  if (req.userId !== id) { res.status(403).json({ error: 'Access denied' }); return; }
 
   const rows = db
     .prepare(`

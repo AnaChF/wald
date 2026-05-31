@@ -25,6 +25,7 @@ interface CommunityStore {
   loadResources: (territoryId: string) => Promise<void>;
   loadFutures: () => Promise<void>;
   submitFuture: (future: Partial<PossibleWorldsFuture>) => Promise<void>;
+  addStake: (futureId: string, whatTheyRisk: string) => Promise<void>;
   setEntryText: (text: string) => void;
 }
 
@@ -126,6 +127,20 @@ export const useStore = create<CommunityStore>((set, get) => ({
       ...future,
     } as PossibleWorldsFuture;
     set((s) => ({ futures: [newFuture, ...s.futures] }));
+  },
+
+  addStake: async (futureId, whatTheyRisk) => {
+    const stake = { user_id: 'user-local', what_they_risk: whatTheyRisk, magnitude: 50 };
+    try {
+      await communityApi.addStake(futureId, stake);
+    } catch { /* optimistic update always runs */ }
+    set((s) => ({
+      futures: s.futures.map((f) =>
+        f.id === futureId
+          ? { ...f, stakes: [...f.stakes, stake], currency_value: f.currency_value + 50 }
+          : f,
+      ),
+    }));
   },
 
   setEntryText: (text) => set({ entryText: text }),
