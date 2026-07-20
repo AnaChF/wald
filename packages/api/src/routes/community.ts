@@ -424,6 +424,110 @@ communityRouter.get('/pwtc/futures', optionalAuth, (req: AuthRequest, res: Respo
   res.json({ data: parsed });
 });
 
+// GET /api/territory/:id/forum
+communityRouter.get('/territory/:id/forum', optionalAuth, (req: AuthRequest, res: Response): void => {
+  const { id } = req.params;
+
+  const territory = db.prepare('SELECT id FROM territories WHERE id = @id').get({ id });
+  if (!territory) {
+    res.status(404).json({ error: 'Territory not found' });
+    return;
+  }
+
+  const posts = db
+    .prepare(`SELECT * FROM forum_posts WHERE territory_id = @territory_id ORDER BY created_at DESC`)
+    .all({ territory_id: id }) as Record<string, unknown>[];
+
+  const enriched = posts.map((p) => {
+    const replies = db
+      .prepare('SELECT * FROM forum_replies WHERE post_id = @post_id ORDER BY created_at ASC')
+      .all({ post_id: p.id }) as Record<string, unknown>[];
+    return {
+      ...p,
+      reply_count: replies.length,
+      replies,
+    };
+  });
+
+  res.json({ data: enriched });
+});
+
+// POST /api/territory/:id/forum
+communityRouter.post('/territory/:id/forum', optionalAuth, (req: AuthRequest, res: Response): void => {
+  const { id } = req.params;
+  const { bolt_claim, content, author } = req.body as {
+    bolt_claim?: string;
+    content?: string;
+    author?: string;
+  };
+
+  if (!bolt_claim) {
+    res.status(400).json({ error: 'bolt_claim is required' });
+    return;
+  }
+
+  const territory = db.prepare('SELECT id FROM territories WHERE id = @id').get({ id });
+  if (!territory) {
+    res.status(404).json({ error: 'Territory not found' });
+    return;
+  }
+
+  const postId = uuidv4();
+  const displayAuthor = author ?? (req.userId ? 'Authenticated User' : 'Anonymous');
+
+  try {
+    db.prepare(`
+      INSERT INTO forum_posts (id, territory_id, author, bolt_claim, content)
+      VALUES (@id, @territory_id, @author, @bolt_claim, @content)
+    `).run({
+      id: postId,
+      territory_id: id,
+      author: displayAuthor,
+      bolt_claim,
+      content: content ?? null,
+    });
+
+    const row = db.prepare('SELECT * FROM forum_posts WHERE id = @id').get({ id: postId }) as Record<string, unknown>;
+    res.status(201).json({ data: { ...row, reply_count: 0, replies: [] } });
+  } catch (err) {
+    console.error('forum post error:', err);
+    res.status(500).json({ error: 'Failed to create forum post' });
+  }
+});
+
+// POST /api/forum/:post_id/reply
+communityRouter.post('/forum/:post_id/reply', optionalAuth, (req: AuthRequest, res: Response): void => {
+  const { post_id } = req.params;
+  const { content, author } = req.body as { content?: string; author?: string };
+
+  if (!content) {
+    res.status(400).json({ error: 'content is required' });
+    return;
+  }
+
+  const post = db.prepare('SELECT id FROM forum_posts WHERE id = @id').get({ id: post_id });
+  if (!post) {
+    res.status(404).json({ error: 'Post not found' });
+    return;
+  }
+
+  const replyId = uuidv4();
+  const displayAuthor = author ?? (req.userId ? 'Authenticated User' : 'Anonymous');
+
+  try {
+    db.prepare(`
+      INSERT INTO forum_replies (id, post_id, author, content)
+      VALUES (@id, @post_id, @author, @content)
+    `).run({ id: replyId, post_id, author: displayAuthor, content });
+
+    const row = db.prepare('SELECT * FROM forum_replies WHERE id = @id').get({ id: replyId });
+    res.status(201).json({ data: row });
+  } catch (err) {
+    console.error('forum reply error:', err);
+    res.status(500).json({ error: 'Failed to create reply' });
+  }
+});
+
 // GET /api/user/:id/journey
 communityRouter.get('/user/:id/journey', optionalAuth, (req: AuthRequest, res: Response): void => {
   const { id } = req.params;

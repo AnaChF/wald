@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Territory, EpistemicCard, TotemicCharacter, PossibleWorldsFuture, TrainStationResource } from './types';
+import type { Territory, EpistemicCard, TotemicCharacter, PossibleWorldsFuture, TrainStationResource, ForumPost } from './types';
 import { communityApi } from './api';
 import { MOCK_TERRITORIES, MOCK_CARDS, MOCK_CHARACTER, MOCK_FUTURES, MOCK_RESOURCES } from './mockData';
 
@@ -12,6 +12,7 @@ interface CommunityStore {
   totemicCharacter: TotemicCharacter | null;
   futures: PossibleWorldsFuture[];
   resources: TrainStationResource[];
+  posts: ForumPost[];
   journeyStage: number;
   loading: boolean;
   entryText: string;
@@ -26,6 +27,9 @@ interface CommunityStore {
   loadFutures: () => Promise<void>;
   submitFuture: (future: Partial<PossibleWorldsFuture>) => Promise<void>;
   addStake: (futureId: string, whatTheyRisk: string) => Promise<void>;
+  loadPosts: (territoryId: string) => Promise<void>;
+  submitPost: (territoryId: string, bolt: string, content: string) => Promise<void>;
+  submitReply: (postId: string, content: string) => Promise<void>;
   setEntryText: (text: string) => void;
 }
 
@@ -38,6 +42,7 @@ export const useStore = create<CommunityStore>((set, get) => ({
   totemicCharacter: null,
   futures: [],
   resources: [],
+  posts: [],
   journeyStage: 1,
   loading: false,
   entryText: '',
@@ -141,6 +146,48 @@ export const useStore = create<CommunityStore>((set, get) => ({
           : f,
       ),
     }));
+  },
+
+  loadPosts: async (territoryId) => {
+    set({ loading: true });
+    try {
+      const res = await communityApi.getPosts(territoryId);
+      set({ posts: res.data.data ?? [], loading: false });
+    } catch {
+      set({ posts: [], loading: false });
+    }
+  },
+
+  submitPost: async (territoryId, bolt, content) => {
+    const optimistic: ForumPost = {
+      id: 'local-' + Math.random().toString(36).slice(2),
+      territory_id: territoryId,
+      author: 'You',
+      bolt_claim: bolt,
+      content,
+      created_at: new Date().toISOString(),
+      reply_count: 0,
+      replies: [],
+    };
+    set((s) => ({ posts: [optimistic, ...s.posts] }));
+    try {
+      const res = await communityApi.submitPost(territoryId, { bolt_claim: bolt, content, author: 'Anonymous' });
+      const saved = res.data.data as ForumPost;
+      set((s) => ({ posts: s.posts.map((p) => (p.id === optimistic.id ? { ...saved, replies: [], reply_count: 0 } : p)) }));
+    } catch { /* optimistic post stays */ }
+  },
+
+  submitReply: async (postId, content) => {
+    set((s) => ({
+      posts: s.posts.map((p) =>
+        p.id === postId
+          ? { ...p, reply_count: p.reply_count + 1, replies: [...p.replies, { id: 'local-' + Math.random().toString(36).slice(2), post_id: postId, author: 'You', content, created_at: new Date().toISOString() }] }
+          : p,
+      ),
+    }));
+    try {
+      await communityApi.submitReply(postId, { content, author: 'Anonymous' });
+    } catch { /* optimistic reply stays */ }
   },
 
   setEntryText: (text) => set({ entryText: text }),

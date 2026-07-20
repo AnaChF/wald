@@ -17,4 +17,7 @@ export const communityApi = {
   addStake: (futureId: string, stake: object) => api.post(`/pwtc/${futureId}/stake`, stake),
   getFutures: () => api.get('/pwtc/futures'),
   getJourney: (userId: string) => api.get(`/user/${userId}/journey`),
+  getPosts: (territoryId: string) => api.get(`/territory/${territoryId}/forum`),
+  submitPost: (territoryId: string, post: object) => api.post(`/territory/${territoryId}/forum`, post),
+  submitReply: (postId: string, reply: object) => api.post(`/forum/${postId}/reply`, reply),
 };

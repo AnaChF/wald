@@ -86,7 +86,7 @@ export interface ForumPost {
   author: string;
   bolt_claim: string;
   content: string;
-  timestamp: string;
+  created_at: string;
   reply_count: number;
   replies: ForumReply[];
 }
@@ -96,5 +96,5 @@ export interface ForumReply {
   post_id: string;
   author: string;
   content: string;
-  timestamp: string;
+  created_at: string;
 }

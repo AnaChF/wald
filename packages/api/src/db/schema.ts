@@ -217,4 +217,23 @@ CREATE TABLE IF NOT EXISTS canopy_revisions (
   snapshot TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS forum_posts (
+  id TEXT PRIMARY KEY,
+  territory_id TEXT NOT NULL,
+  author TEXT NOT NULL,
+  bolt_claim TEXT NOT NULL,
+  content TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (territory_id) REFERENCES territories(id)
+);
+
+CREATE TABLE IF NOT EXISTS forum_replies (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  author TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (post_id) REFERENCES forum_posts(id)
+);
 `;
