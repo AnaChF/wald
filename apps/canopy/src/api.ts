@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type {
   CanopySession, Signal, ClassificationResult, Scenario,
-  ScenarioAuditResult, Forecast, HarvestSeed,
+  ScenarioAuditResult, Forecast, HarvestSeed, CLAData,
 } from './types';
 
 const BASE = '/api';
@@ -55,7 +55,7 @@ export const saveTriangle = (sessionId: string, body: Record<string, unknown>) =
   api.post(`/canopy/session/${sessionId}/triangle`, body).then((r) => r.data);
 
 // CLA
-export const saveCLA = (sessionId: string, body: Record<string, unknown>) =>
+export const saveCLA = (sessionId: string, body: CLAData) =>
   api.post(`/canopy/session/${sessionId}/cla`, body).then((r) => r.data);
 
 // Scenarios

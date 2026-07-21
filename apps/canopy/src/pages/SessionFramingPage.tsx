@@ -35,10 +35,10 @@ export function SessionFramingPage() {
     try {
       if (mode === 'walditorium') {
         const sessions = await getWalditoriumSessions(userId);
-        setAuditList(sessions as AuditStub[]);
+        setAuditList(sessions as unknown as AuditStub[]);
       } else if (mode === 'harvest') {
         const trees = await getHarvestTrees(userId);
-        setTreeList(trees as TreeStub[]);
+        setTreeList(trees as unknown as TreeStub[]);
       }
     } catch {
       // non-fatal — user can still proceed without import
