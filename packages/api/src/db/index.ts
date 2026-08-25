@@ -432,9 +432,117 @@ function seedTerritories(): void {
   seedAll();
 }
 
+function territoryIdByName(name: string): string | null {
+  const row = db.prepare('SELECT id FROM territories WHERE name = @name').get({ name }) as
+    | { id: string }
+    | undefined;
+  return row?.id ?? null;
+}
+
+function seedStationResources(): void {
+  if (!isEmpty('train_station_resources')) return;
+
+  const insert = db.prepare(`
+    INSERT INTO train_station_resources (id, territory_id, title, type, url, waldconsistency_level, description, is_locked)
+    VALUES (@id, @territory_id, @title, @type, @url, @waldconsistency_level, @description, @is_locked)
+  `);
+
+  const resources = [
+    ['Busyness Park', 'The Second Machine Age', 'ebook', 'K', 'Brynjolfsson & McAfee on automation and employment.', 0],
+    ['Busyness Park', 'Bullshit Jobs (Graeber)', 'ebook', 'CR', 'A theory of the proliferation of pointless work.', 0],
+    ['Busyness Park', '99% Invisible — Future of Work', 'audio', 'S', 'Podcast episode on redesigning labour.', 1],
+    ['Assembly', 'Epistemic Injustice (Fricker)', 'ebook', 'CE', 'The foundational text on epistemic injustice.', 0],
+    ['Assembly', 'The Enigma of Reason (Mercier & Sperber)', 'ebook', 'L', 'Why humans reason and when they do it well.', 0],
+    ['Assembly', 'Philosophy Bites — Deliberative Democracy', 'audio', 'CN', 'Short interview on the theory of deliberative democracy.', 0],
+    ['Space Agency', 'The Uninhabitable Earth (Wallace-Wells)', 'ebook', 'CR', 'A detailed account of climate futures.', 0],
+    ['Space Agency', 'Lunar — Tim Peake', 'ebook', 'K', 'Astronaut memoir with reflections on planetary scale.', 1],
+    ['Parentown', 'The Whole-Brain Child', 'ebook', 'K', 'Neuroscience of child development.', 0],
+    ['Bond Street', 'Capital in the 21st Century (Piketty)', 'ebook', 'CR', 'The definitive study of wealth concentration.', 0],
+    ['Studio City', 'Ways of Seeing (Berger)', 'video', 'CE', 'BBC series on image and value in art.', 0],
+    ['Studio City', 'Steal Like an Artist (Kleon)', 'ebook', 'S', 'On creative influence and authorship.', 0],
+  ] as const;
+
+  const seedAll = db.transaction(() => {
+    for (const [territoryName, title, type, level, description, isLocked] of resources) {
+      const territory_id = territoryIdByName(territoryName);
+      if (!territory_id) continue;
+      insert.run({
+        id: uuidv4(),
+        territory_id,
+        title,
+        type,
+        url: '#',
+        waldconsistency_level: level,
+        description,
+        is_locked: isLocked,
+      });
+    }
+  });
+
+  seedAll();
+}
+
+function seedFutures(): void {
+  if (!isEmpty('possible_worlds_futures')) return;
+
+  const insert = db.prepare(`
+    INSERT INTO possible_worlds_futures
+      (id, author_id, title, description, territory_id, stakes, currency_value, shares, options, arrow_failure_flag, status)
+    VALUES
+      (@id, @author_id, @title, @description, @territory_id, @stakes, @currency_value, @shares, @options, @arrow_failure_flag, @status)
+  `);
+
+  const futures = [
+    {
+      title: 'Universal Epistemic Infrastructure',
+      description:
+        'A world in which every school teaches the Waldconsistency framework as a core literacy, alongside reading, writing, and arithmetic.',
+      territoryName: 'Assembly',
+      stakes: [{ user_id: null, what_they_risk: 'My belief that institutions can self-reform', magnitude: 80 }],
+      currency_value: 80,
+      options: [
+        { condition: 'If one country adopts epistemic literacy by 2030', action_if_triggered: 'Double currency value' },
+      ],
+      arrow_failure_flag: 0,
+    },
+    {
+      title: 'Post-Employment Compact',
+      description:
+        'A social contract in which employment is optional and social contribution is the currency of citizenship.',
+      territoryName: 'Busyness Park',
+      stakes: [{ user_id: null, what_they_risk: 'My career identity', magnitude: 95 }],
+      currency_value: 95,
+      options: [],
+      arrow_failure_flag: 1,
+    },
+  ];
+
+  const seedAll = db.transaction(() => {
+    for (const f of futures) {
+      insert.run({
+        id: uuidv4(),
+        author_id: null,
+        title: f.title,
+        description: f.description,
+        territory_id: territoryIdByName(f.territoryName),
+        stakes: JSON.stringify(f.stakes),
+        currency_value: f.currency_value,
+        shares: JSON.stringify([]),
+        options: JSON.stringify(f.options),
+        arrow_failure_flag: f.arrow_failure_flag,
+        status: 'open',
+      });
+    }
+  });
+
+  seedAll();
+}
+
 // Run seed
 try {
   seedTerritories();
+  seedStationResources();
+  seedFutures();
 } catch (err) {
   console.error('Seed error (non-fatal):', err);
 }
